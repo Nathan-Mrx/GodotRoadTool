@@ -409,7 +409,6 @@ void ProceduralRoad::RebuildRoad() {
         return;
     }
 
-    // --- PRÉPARATION DES DONNÉES GLOBALES (Calculées 1 seule fois) ---
     const float TotalWidth = GetTotalRoadWidth();
     const float StartX = -TotalWidth * 0.5f + ShoulderWidth;
     Vector<RibbonDef> Ribbons;
@@ -435,10 +434,47 @@ void ProceduralRoad::RebuildRoad() {
 
     PackedVector3Array Points = CurrentCurve->get_baked_points();
     PackedVector3Array UpVectors = CurrentCurve->get_baked_up_vectors();
+
+    // La variable manquante est ici :
     Vector<ProfileVertex> Profile = BuildCrossSectionProfile();
+
     const int PointCount = Points.size();
 
-    // --- ALGORITHME DE SLICING DES CHUNKS ---
+    PackedVector3Array Forwards;
+    Forwards.resize(PointCount);
+
+    bool is_loop = (PointCount > 2) && (Points[0].distance_to(Points[PointCount - 1]) < 0.05f);
+
+    if (is_loop) {
+        Points.set(PointCount - 1, Points[0]);
+    }
+
+    for (int i = 0; i < PointCount; ++i) {
+        Vector3 forward;
+        if (i == 0) {
+            if (is_loop) {
+                forward = (Points[1] - Points[PointCount - 2]).normalized();
+            } else {
+                forward = (Points[1] - Points[0]).normalized();
+            }
+        } else if (i == PointCount - 1) {
+            if (is_loop) {
+                forward = (Points[1] - Points[PointCount - 2]).normalized();
+            } else {
+                forward = (Points[i] - Points[i - 1]).normalized();
+            }
+        } else {
+            forward = (Points[i + 1] - Points[i - 1]).normalized();
+        }
+        Forwards.set(i, forward);
+    }
+
+    if (is_loop) {
+        Vector3 seam_up = (UpVectors[0] + UpVectors[PointCount - 1]).normalized();
+        UpVectors.set(0, seam_up);
+        UpVectors.set(PointCount - 1, seam_up);
+    }
+
     struct ChunkRange {
         int StartIdx;
         int EndIdx;
@@ -454,26 +490,22 @@ void ProceduralRoad::RebuildRoad() {
         float DistToNext = Points[i].distance_to(Points[i + 1]);
         AccumulatedDistance += DistToNext;
 
-        // Si la distance accumulée dépasse la taille voulue pour ce chunk, on coupe.
         if (AccumulatedDistance - CurrentChunkStartDist >= ChunkLength) {
-            // Le point "i + 1" est partagé : c'est la fin du chunk actuel, et le début du suivant.
             Ranges.push_back({CurrentStartIdx, i + 1, CurrentChunkStartDist});
             CurrentStartIdx = i + 1;
             CurrentChunkStartDist = AccumulatedDistance;
         }
     }
 
-    // Ajout du dernier segment (s'il reste des points)
     if (CurrentStartIdx < PointCount - 1) {
         Ranges.push_back({CurrentStartIdx, PointCount - 1, CurrentChunkStartDist});
     }
 
-    // Allocation des nœuds
     UpdateChunkCount(Ranges.size());
 
-    // Génération multithreadée (TODO pour plus tard, pour l'instant synchrone)
+    // TODO: Paralléliser cette boucle avec un WorkerThreadPool quand le système sera stabilisé
     for (int c = 0; c < Ranges.size(); ++c) {
-        GenerateChunkMesh(c, Ranges[c].StartIdx, Ranges[c].EndIdx, Points, UpVectors, Ranges[c].StartDistance, Profile, Ribbons);
+        GenerateChunkMesh(c, Ranges[c].StartIdx, Ranges[c].EndIdx, Points, UpVectors, Forwards, Ranges[c].StartDistance, Profile, Ribbons);
     }
 }
 
@@ -522,15 +554,13 @@ void ProceduralRoad::UpdateChunkCount(int p_target_count) {
     }
 }
 
-void ProceduralRoad::GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p_end_idx, const PackedVector3Array& p_points, const PackedVector3Array& p_up_vectors, float p_start_distance, const Vector<ProfileVertex>& p_profile, const Vector<RibbonDef>& p_ribbons) {
+void ProceduralRoad::GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p_end_idx, const PackedVector3Array& p_points, const PackedVector3Array& p_up_vectors, const PackedVector3Array& p_forwards, float p_start_distance, const Vector<ProfileVertex>& p_profile, const Vector<RibbonDef>& p_ribbons) {
 
     RoadChunk& Chunk = Chunks.ptrw()[p_chunk_index];
     const int ProfileCount = p_profile.size();
     const int RibbonCountTotal = p_ribbons.size();
     const int LocalPointCount = p_end_idx - p_start_idx + 1;
 
-    // --- LE FIX DE PRÉCISION DES FLOATS ---
-    // On prend le premier point de ce segment comme point d'origine local
     const Vector3 ChunkOrigin = p_points[p_start_idx];
     Chunk.MeshInst->set_position(ChunkOrigin);
     Chunk.StaticBody->set_position(ChunkOrigin);
@@ -545,28 +575,21 @@ void ProceduralRoad::GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p
 
     float DistanceAlongCurve = p_start_distance;
 
-    // --- 1. VERTICES ---
     for (int i = p_start_idx; i <= p_end_idx; ++i) {
         const Vector3 CurrentPoint = p_points[i];
         const Vector3 CurrentUp = p_up_vectors[i].normalized();
 
-        Vector3 Forward = Vector3(0, 0, -1);
-        if (i < p_points.size() - 1) {
-            Forward = (p_points[i + 1] - CurrentPoint).normalized();
-        } else if (i > 0) {
-            Forward = (CurrentPoint - p_points[i - 1]).normalized();
-        }
+        // --- UTILISATION DIRECTE DU FORWARD LISSÉ ---
+        const Vector3 Forward = p_forwards[i];
 
         const Vector3 Right = Forward.cross(CurrentUp).normalized();
         const Vector3 OrthogonalUp = Right.cross(Forward).normalized();
 
-        // Asphalte
         float CurrentPerimeter = 0.0f;
         for (int j = 0; j < ProfileCount; ++j) {
             const Vector2 ProfilePos = p_profile[j].Position;
             const Vector2 ProfileNormal = p_profile[j].Normal;
 
-            // On soustrait l'origine du chunk pour rester en coordonnées locales strictes
             const Vector3 Vertex3D = (CurrentPoint + (Right * ProfilePos.x) + (OrthogonalUp * ProfilePos.y)) - ChunkOrigin;
             const Vector3 Normal3D = ((Right * ProfileNormal.x) + (OrthogonalUp * ProfileNormal.y)).normalized();
 
@@ -578,10 +601,8 @@ void ProceduralRoad::GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p
             CurrentPerimeter += p_profile[j].Position.distance_to(p_profile[NextJ].Position);
         }
 
-        // Lignes
         for (int k = 0; k < RibbonCountTotal; ++k) {
             const Vector3 Center = CurrentPoint + (Right * p_ribbons[k].OffsetX) + (OrthogonalUp * (RoadThickness * 0.5f + LineOffset));
-            // On soustrait l'origine ici aussi
             const Vector3 LeftVertex = (Center - (Right * (LineWidth * 0.5f))) - ChunkOrigin;
             const Vector3 RightVertex = (Center + (Right * (LineWidth * 0.5f))) - ChunkOrigin;
 
@@ -601,9 +622,7 @@ void ProceduralRoad::GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p
         }
     }
 
-    // --- 2. INDEXATION ---
     for (int local_i = 0; local_i < LocalPointCount - 1; ++local_i) {
-        // Asphalte
         const int CurrentRing = local_i * ProfileCount;
         const int NextRing = (local_i + 1) * ProfileCount;
 
@@ -618,7 +637,6 @@ void ProceduralRoad::GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p
             RoadSurface->add_index(NextRing + NextJ);
         }
 
-        // Lignes
         for (int k = 0; k < RibbonCountTotal; ++k) {
             const int CurrentLeft = (local_i * RibbonCountTotal * 2) + (k * 2);
             const int CurrentRight = CurrentLeft + 1;
@@ -638,7 +656,6 @@ void ProceduralRoad::GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p
     RoadSurface->generate_tangents();
     LineSurface->generate_tangents();
 
-    // --- 3. COMMIT ET ASSIGNATION ---
     Ref<ArrayMesh> FinalMesh = RoadSurface->commit();
     if (RoadMaterial.is_valid()) FinalMesh->surface_set_material(0, RoadMaterial);
 
