@@ -1,0 +1,19 @@
+[gd_scene format=3 uid="uid://pyka577i63vf"]
+
+[ext_resource type="Script" uid="uid://c0x6w74q0d657" path="res://scenes/test_character.gd" id="1_fu7c7"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_fi41j"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_mhq03"]
+
+[node name="TestCharacter" type="CharacterBody3D" unique_id=1533085479]
+script = ExtResource("1_fu7c7")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1492031888]
+mesh = SubResource("BoxMesh_fi41j")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=83537136]
+shape = SubResource("BoxShape3D_mhq03")
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1855643513]
+transform = Transform3D(1, 0, 0, 0, 0.9938552, 0.110688396, 0, -0.110688396, 0.9938552, -1.1920929e-07, 1.0150588, 2.3224378)

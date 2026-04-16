@@ -1,0 +1,39 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "GodotRoadTool Default",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-cmake",
+      "cacheVariables": {
+        "GRT_PLATFORM": "linuxbsd",
+        "GRT_ARCH": "x86_64",
+        "GRT_DEV_BUILD": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "build",
+      "configurePreset": "default",
+      "targets": ["build"]
+    },
+    {
+      "name": "editor",
+      "configurePreset": "default",
+      "targets": ["editor"]
+    },
+    {
+      "name": "play",
+      "configurePreset": "default",
+      "targets": ["play"]
+    }
+  ]
+}
+

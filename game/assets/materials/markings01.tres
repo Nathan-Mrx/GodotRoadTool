@@ -1,0 +1,13 @@
+[gd_resource type="ShaderMaterial" format=3 uid="uid://bpgcqe240tn7i"]
+
+[ext_resource type="Shader" uid="uid://ddnt264tuvmjq" path="res://shaders/markings.gdshader" id="1_qx0d2"]
+[ext_resource type="Texture2D" uid="uid://85clah2c2bw5" path="res://assets/textures/asphalte01/CityStreetAsphaltGenericClean001_NRM_2K.jpg" id="2_78s2x"]
+[ext_resource type="Texture2D" uid="uid://eljqq5pnw48c" path="res://assets/textures/asphalte01/CityStreetAsphaltGenericClean001_ROUGH_2K.jpg" id="3_q2db7"]
+
+[resource]
+render_priority = 0
+shader = ExtResource("1_qx0d2")
+shader_parameter/road_normal_map = ExtResource("2_78s2x")
+shader_parameter/road_roughness_map = ExtResource("3_q2db7")
+shader_parameter/dash_length = 3.0
+shader_parameter/dash_gap = 3.5

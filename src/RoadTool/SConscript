@@ -1,0 +1,46 @@
+import os
+
+Import('env')
+
+# Clone env so RoadTool settings don't bleed into gameplay
+roadtool_env = env.Clone()
+roadtool_env.Append(CPPPATH=["."]) 
+
+sources = Glob("*.cpp")
+# Output to game/bin/libroadtool...
+lib_path = "../../game/bin/libroadtool" + roadtool_env["suffix"]
+
+library = roadtool_env.SharedLibrary(target=lib_path, source=sources)
+Default(library)
+
+# --- AUTO-GENERATE .gdextension FILE ---
+def generate_gdextension_file(target, source, env):
+    # configuration
+    output_dir = target[0].dir.get_abspath()
+    file_name = "RoadTool.gdextension"
+    entry_symbol = "roadtool_library_init"
+    lib_name = "libroadtool"
+    
+    output_path = os.path.join(output_dir, file_name)
+    
+    content = f"""[configuration]
+entry_symbol = "{entry_symbol}"
+compatibility_minimum = "4.6"
+
+[libraries]
+macos.debug = "res://bin/{lib_name}.macos.template_debug.arm64.dylib"
+macos.release = "res://bin/{lib_name}.macos.template_release.arm64.dylib"
+
+windows.debug.x86_64 = "res://bin/{lib_name}.windows.template_debug.x86_64.dll"
+windows.release.x86_64 = "res://bin/{lib_name}.windows.template_release.x86_64.dll"
+
+linux.debug.x86_64 = "res://bin/{lib_name}.linux.template_debug.x86_64.so"
+linux.release.x86_64 = "res://bin/{lib_name}.linux.template_release.x86_64.so"
+"""
+    
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, "w") as f:
+        f.write(content)
+    print(f"Generated {file_name} at {output_path}")
+
+roadtool_env.AddPostAction(library, generate_gdextension_file)

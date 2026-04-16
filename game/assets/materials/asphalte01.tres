@@ -1,0 +1,24 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://dg0qmx5ch8fxn"]
+
+[ext_resource type="Texture2D" uid="uid://deodj5qtdc6di" path="res://assets/textures/asphalte01/CityStreetAsphaltGenericClean001_COL_2K.jpg" id="1_2mk8c"]
+[ext_resource type="Texture2D" uid="uid://cerwcq5t61exb" path="res://assets/textures/asphalte01/CityStreetAsphaltGenericClean001_AO_2K.jpg" id="2_wajen"]
+[ext_resource type="Texture2D" uid="uid://f45nletbr735" path="res://assets/textures/asphalte01/CityStreetAsphaltGenericClean001_DISP_2K.jpg" id="3_33j1p"]
+[ext_resource type="Texture2D" uid="uid://e3ow6fwt6cd8" path="res://assets/textures/asphalte01/CityStreetAsphaltGenericClean001_REFL_2K.jpg" id="4_mhqqe"]
+[ext_resource type="Texture2D" uid="uid://85clah2c2bw5" path="res://assets/textures/asphalte01/CityStreetAsphaltGenericClean001_NRM_2K.jpg" id="5_symhn"]
+[ext_resource type="Texture2D" uid="uid://eljqq5pnw48c" path="res://assets/textures/asphalte01/CityStreetAsphaltGenericClean001_ROUGH_2K.jpg" id="6_2mk8c"]
+
+[resource]
+albedo_texture = ExtResource("1_2mk8c")
+metallic = 1.0
+metallic_texture = ExtResource("4_mhqqe")
+roughness_texture = ExtResource("6_2mk8c")
+normal_enabled = true
+normal_scale = 2.0
+normal_texture = ExtResource("5_symhn")
+ao_enabled = true
+ao_texture = ExtResource("2_wajen")
+heightmap_enabled = true
+heightmap_deep_parallax = true
+heightmap_min_layers = 8
+heightmap_max_layers = 32
+heightmap_texture = ExtResource("3_33j1p")

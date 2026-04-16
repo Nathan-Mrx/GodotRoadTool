@@ -1,0 +1,5 @@
+/home/nathan/Projects/GodotRoadTool/build-cmake/CMakeFiles/build.dir
+/home/nathan/Projects/GodotRoadTool/build-cmake/CMakeFiles/editor.dir
+/home/nathan/Projects/GodotRoadTool/build-cmake/CMakeFiles/play.dir
+/home/nathan/Projects/GodotRoadTool/build-cmake/CMakeFiles/edit_cache.dir
+/home/nathan/Projects/GodotRoadTool/build-cmake/CMakeFiles/rebuild_cache.dir
