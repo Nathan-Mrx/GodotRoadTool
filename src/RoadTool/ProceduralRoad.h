@@ -17,6 +17,18 @@ namespace godot {
         Vector2 Normal;
     };
 
+    struct RibbonDef {
+        float OffsetX;
+        Color ColorValue; // Alpha 1.0 = Continue, Alpha 0.0 = Pointillée
+    };
+
+    // Nouveau conteneur pour regrouper les nœuds d'un segment
+    struct RoadChunk {
+        MeshInstance3D* MeshInst = nullptr;
+        StaticBody3D* StaticBody = nullptr;
+        CollisionShape3D* CollisionShape = nullptr;
+    };
+
     class ProceduralRoad : public Path3D {
         GDCLASS(ProceduralRoad, Path3D)
 
@@ -24,6 +36,7 @@ namespace godot {
         float RoadThickness = 0.5f;
         int ProfileResolution = 8;
         Vector2 UvScale = Vector2(1.0f, 1.0f);
+        float ChunkLength = 50.0f; // Longueur cible d'un segment en mètres
 
         int LaneCount = 2;
         float LaneWidth = 3.5f;
@@ -40,9 +53,7 @@ namespace godot {
         Ref<Material> RoadMaterial;
         Ref<Material> MarkingsMaterial;
 
-        MeshInstance3D* RoadMeshInstance = nullptr;
-        StaticBody3D* RoadStaticBody = nullptr;
-        CollisionShape3D* RoadCollisionShape = nullptr;
+        Vector<RoadChunk> Chunks;
 
         bool UseCollision = true;
         Ref<Curve3D> LastCurve; // Tracking pour le rebuild automatique
@@ -52,6 +63,9 @@ namespace godot {
         Vector<ProfileVertex> BuildCrossSectionProfile() const;
         void AutoSmoothCurve();
         float GetTotalRoadWidth() const;
+
+        void UpdateChunkCount(int p_target_count);
+        void GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p_end_idx, const PackedVector3Array& p_points, const PackedVector3Array& p_up_vectors, float p_start_distance, const Vector<ProfileVertex>& p_profile, const Vector<RibbonDef>& p_ribbons);
 
         // 0 = Continue, 1 = Pointillée, 2 = Double Continue
         int EdgeLineType = 0;   // Bord
@@ -114,6 +128,8 @@ namespace godot {
         float GetDashLength() const;
         void SetDashGap(float p_gap);
         float GetDashGap() const;
+        void SetChunkLength(float p_length);
+        float GetChunkLength() const;
     };
 }
 #endif

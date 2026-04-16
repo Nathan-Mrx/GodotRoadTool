@@ -2,6 +2,7 @@
 #include <godot_cpp/classes/array_mesh.hpp>
 #include <godot_cpp/classes/concave_polygon_shape3d.hpp>
 #include <godot_cpp/classes/curve3d.hpp>
+#include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/surface_tool.hpp>
 #include <godot_cpp/core/class_db.hpp>
 
@@ -68,6 +69,9 @@ void ProceduralRoad::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_dash_gap", "gap"), &ProceduralRoad::SetDashGap);
     ClassDB::bind_method(D_METHOD("get_dash_gap"), &ProceduralRoad::GetDashGap);
 
+    ClassDB::bind_method(D_METHOD("set_chunk_length", "length"), &ProceduralRoad::SetChunkLength);
+    ClassDB::bind_method(D_METHOD("get_chunk_length"), &ProceduralRoad::GetChunkLength);
+
     ADD_GROUP("Road Geometry", "");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "road_thickness"), "set_road_thickness", "get_road_thickness");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "profile_resolution"), "set_profile_resolution", "get_profile_resolution");
@@ -103,17 +107,12 @@ void ProceduralRoad::_bind_methods() {
     ADD_GROUP("Markings Dash Settings", "");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "dash_length"), "set_dash_length", "get_dash_length");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "dash_gap"), "set_dash_gap", "get_dash_gap");
+
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "chunk_length"), "set_chunk_length", "get_chunk_length");
 }
 
 ProceduralRoad::ProceduralRoad() {
-    RoadMeshInstance = memnew(MeshInstance3D);
-    add_child(RoadMeshInstance);
-
-    RoadStaticBody = memnew(StaticBody3D);
-    add_child(RoadStaticBody);
-
-    RoadCollisionShape = memnew(CollisionShape3D);
-    RoadStaticBody->add_child(RoadCollisionShape);
+    // Vide. Les chunks sont gérés par UpdateChunkCount() lors du RebuildRoad.
 }
 
 ProceduralRoad::~ProceduralRoad() {}
@@ -393,68 +392,149 @@ Vector<ProfileVertex> ProceduralRoad::BuildCrossSectionProfile() const {
 void ProceduralRoad::RebuildRoad() {
     Ref<Curve3D> CurrentCurve = get_curve();
 
-    // --- 0. GESTION ROBUSTE DU CYCLE DE VIE ---
     if (CurrentCurve != LastCurve) {
         if (LastCurve.is_valid() && LastCurve->is_connected("changed", Callable(this, "_on_curve_changed"))) {
             LastCurve->disconnect("changed", Callable(this, "_on_curve_changed"));
         }
-
         LastCurve = CurrentCurve;
         if (LastCurve.is_valid()) {
-            // AJOUT DE LA VÉRIFICATION is_connected ICI
             if (!LastCurve->is_connected("changed", Callable(this, "_on_curve_changed"))) {
                 LastCurve->connect("changed", Callable(this, "_on_curve_changed"));
             }
         }
     }
 
-    // Sécurité si la courbe est vide
     if (CurrentCurve.is_null() || CurrentCurve->get_baked_points().size() < 2) {
-        if (RoadMeshInstance != nullptr) RoadMeshInstance->set_mesh(Ref<ArrayMesh>());
-        if (RoadCollisionShape != nullptr) RoadCollisionShape->set_shape(Ref<Shape3D>());
+        UpdateChunkCount(0);
         return;
     }
 
-    // --- 1. CONFIGURATION DES RUBANS DE MARQUAGE (RIBBONS) ---
-    struct RibbonDef {
-        float OffsetX;
-        Color ColorValue; // Alpha 1.0 = Continue, Alpha 0.0 = Pointillée
-    };
-
-    Vector<RibbonDef> Ribbons;
+    // --- PRÉPARATION DES DONNÉES GLOBALES (Calculées 1 seule fois) ---
     const float TotalWidth = GetTotalRoadWidth();
     const float StartX = -TotalWidth * 0.5f + ShoulderWidth;
+    Vector<RibbonDef> Ribbons;
 
     auto add_ribbons = [&](float base_offset, Color base_color, int line_type) {
         float alpha = (line_type == 1) ? 0.0f : 1.0f;
         Color final_color = Color(base_color.r, base_color.g, base_color.b, alpha);
-
-        if (line_type == 2) { // Double Continue
+        if (line_type == 2) {
             Ribbons.push_back({base_offset - (DoubleLineSpacing * 0.5f), final_color});
             Ribbons.push_back({base_offset + (DoubleLineSpacing * 0.5f), final_color});
-        } else { // Continue ou Pointillée
+        } else {
             Ribbons.push_back({base_offset, final_color});
         }
     };
 
-    // Lignes de rive (bords)
     add_ribbons(StartX, EdgeLineColor, EdgeLineType);
     add_ribbons(TotalWidth * 0.5f - ShoulderWidth, EdgeLineColor, EdgeLineType);
-
-    // Lignes de voies (intérieures)
     for (int Lane = 1; Lane < LaneCount; ++Lane) {
         const float Offset = StartX + (Lane * LaneWidth);
         const bool IsCenter = (!IsOneWay && Lane == CenterLineIndex);
-
-        const Color MarkColor = IsCenter ? CenterLineColor : LaneLineColor;
-        const int MarkType = IsCenter ? CenterLineType : LaneLineType;
-
-        add_ribbons(Offset, MarkColor, MarkType);
+        add_ribbons(Offset, IsCenter ? CenterLineColor : LaneLineColor, IsCenter ? CenterLineType : LaneLineType);
     }
 
-    const int RibbonCountTotal = Ribbons.size();
+    PackedVector3Array Points = CurrentCurve->get_baked_points();
+    PackedVector3Array UpVectors = CurrentCurve->get_baked_up_vectors();
+    Vector<ProfileVertex> Profile = BuildCrossSectionProfile();
+    const int PointCount = Points.size();
 
-    // --- 2. PRÉPARATION DES SURFACES ---
+    // --- ALGORITHME DE SLICING DES CHUNKS ---
+    struct ChunkRange {
+        int StartIdx;
+        int EndIdx;
+        float StartDistance;
+    };
+    Vector<ChunkRange> Ranges;
+
+    float AccumulatedDistance = 0.0f;
+    float CurrentChunkStartDist = 0.0f;
+    int CurrentStartIdx = 0;
+
+    for (int i = 0; i < PointCount - 1; ++i) {
+        float DistToNext = Points[i].distance_to(Points[i + 1]);
+        AccumulatedDistance += DistToNext;
+
+        // Si la distance accumulée dépasse la taille voulue pour ce chunk, on coupe.
+        if (AccumulatedDistance - CurrentChunkStartDist >= ChunkLength) {
+            // Le point "i + 1" est partagé : c'est la fin du chunk actuel, et le début du suivant.
+            Ranges.push_back({CurrentStartIdx, i + 1, CurrentChunkStartDist});
+            CurrentStartIdx = i + 1;
+            CurrentChunkStartDist = AccumulatedDistance;
+        }
+    }
+
+    // Ajout du dernier segment (s'il reste des points)
+    if (CurrentStartIdx < PointCount - 1) {
+        Ranges.push_back({CurrentStartIdx, PointCount - 1, CurrentChunkStartDist});
+    }
+
+    // Allocation des nœuds
+    UpdateChunkCount(Ranges.size());
+
+    // Génération multithreadée (TODO pour plus tard, pour l'instant synchrone)
+    for (int c = 0; c < Ranges.size(); ++c) {
+        GenerateChunkMesh(c, Ranges[c].StartIdx, Ranges[c].EndIdx, Points, UpVectors, Ranges[c].StartDistance, Profile, Ribbons);
+    }
+}
+
+void ProceduralRoad::SetChunkLength(float p_length) {
+    ChunkLength = Math::max(10.0f, p_length); // Sécurité : pas de chunks de 1 mètre
+    RebuildRoad();
+}
+
+float ProceduralRoad::GetChunkLength() const { return ChunkLength; }
+
+void ProceduralRoad::UpdateChunkCount(int p_target_count) {
+    // 1. Détruire les chunks en trop
+    while (Chunks.size() > p_target_count) {
+        RoadChunk Chunk = Chunks[Chunks.size() - 1];
+        if (Chunk.MeshInst) Chunk.MeshInst->queue_free();
+        if (Chunk.StaticBody) Chunk.StaticBody->queue_free();
+        // CollisionShape est détruite avec le StaticBody
+        Chunks.remove_at(Chunks.size() - 1);
+    }
+
+    // 2. Créer les chunks manquants
+    Node* ValidOwner = get_owner();
+    if (!ValidOwner && is_inside_tree()) {
+        ValidOwner = get_tree()->get_edited_scene_root();
+    }
+
+    while (Chunks.size() < p_target_count) {
+        RoadChunk NewChunk;
+
+        NewChunk.MeshInst = memnew(MeshInstance3D);
+        add_child(NewChunk.MeshInst);
+        if (ValidOwner) NewChunk.MeshInst->set_owner(ValidOwner);
+
+        NewChunk.StaticBody = memnew(StaticBody3D);
+        add_child(NewChunk.StaticBody);
+        if (ValidOwner) NewChunk.StaticBody->set_owner(ValidOwner);
+
+        NewChunk.CollisionShape = memnew(CollisionShape3D);
+        NewChunk.StaticBody->add_child(NewChunk.CollisionShape);
+        if (ValidOwner) NewChunk.CollisionShape->set_owner(ValidOwner);
+
+        // On cache le rendu visuel du noeud (le filaire bleu) sans désactiver la physique
+        NewChunk.CollisionShape->set_visible(false);
+
+        Chunks.push_back(NewChunk);
+    }
+}
+
+void ProceduralRoad::GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p_end_idx, const PackedVector3Array& p_points, const PackedVector3Array& p_up_vectors, float p_start_distance, const Vector<ProfileVertex>& p_profile, const Vector<RibbonDef>& p_ribbons) {
+
+    RoadChunk& Chunk = Chunks.ptrw()[p_chunk_index];
+    const int ProfileCount = p_profile.size();
+    const int RibbonCountTotal = p_ribbons.size();
+    const int LocalPointCount = p_end_idx - p_start_idx + 1;
+
+    // --- LE FIX DE PRÉCISION DES FLOATS ---
+    // On prend le premier point de ce segment comme point d'origine local
+    const Vector3 ChunkOrigin = p_points[p_start_idx];
+    Chunk.MeshInst->set_position(ChunkOrigin);
+    Chunk.StaticBody->set_position(ChunkOrigin);
+
     Ref<SurfaceTool> RoadSurface;
     RoadSurface.instantiate();
     RoadSurface->begin(Mesh::PRIMITIVE_TRIANGLES);
@@ -463,36 +543,31 @@ void ProceduralRoad::RebuildRoad() {
     LineSurface.instantiate();
     LineSurface->begin(Mesh::PRIMITIVE_TRIANGLES);
 
-    PackedVector3Array Points = CurrentCurve->get_baked_points();
-    PackedVector3Array UpVectors = CurrentCurve->get_baked_up_vectors();
-    Vector<ProfileVertex> Profile = BuildCrossSectionProfile();
+    float DistanceAlongCurve = p_start_distance;
 
-    const int PointCount = Points.size();
-    const int ProfileCount = Profile.size();
-    float DistanceAlongCurve = 0.0f;
-
-    // --- 3. GÉNÉRATION DES SOMMETS (VERTICES) ---
-    for (int i = 0; i < PointCount; ++i) {
-        const Vector3 CurrentPoint = Points[i];
-        const Vector3 CurrentUp = UpVectors[i].normalized();
+    // --- 1. VERTICES ---
+    for (int i = p_start_idx; i <= p_end_idx; ++i) {
+        const Vector3 CurrentPoint = p_points[i];
+        const Vector3 CurrentUp = p_up_vectors[i].normalized();
 
         Vector3 Forward = Vector3(0, 0, -1);
-        if (i < PointCount - 1) {
-            Forward = (Points[i + 1] - CurrentPoint).normalized();
+        if (i < p_points.size() - 1) {
+            Forward = (p_points[i + 1] - CurrentPoint).normalized();
         } else if (i > 0) {
-            Forward = (CurrentPoint - Points[i - 1]).normalized();
+            Forward = (CurrentPoint - p_points[i - 1]).normalized();
         }
 
         const Vector3 Right = Forward.cross(CurrentUp).normalized();
         const Vector3 OrthogonalUp = Right.cross(Forward).normalized();
 
-        // 3a. Vertices Asphalte
+        // Asphalte
         float CurrentPerimeter = 0.0f;
         for (int j = 0; j < ProfileCount; ++j) {
-            const Vector2 ProfilePos = Profile[j].Position;
-            const Vector2 ProfileNormal = Profile[j].Normal;
+            const Vector2 ProfilePos = p_profile[j].Position;
+            const Vector2 ProfileNormal = p_profile[j].Normal;
 
-            const Vector3 Vertex3D = CurrentPoint + (Right * ProfilePos.x) + (OrthogonalUp * ProfilePos.y);
+            // On soustrait l'origine du chunk pour rester en coordonnées locales strictes
+            const Vector3 Vertex3D = (CurrentPoint + (Right * ProfilePos.x) + (OrthogonalUp * ProfilePos.y)) - ChunkOrigin;
             const Vector3 Normal3D = ((Right * ProfileNormal.x) + (OrthogonalUp * ProfileNormal.y)).normalized();
 
             RoadSurface->set_normal(Normal3D);
@@ -500,36 +575,37 @@ void ProceduralRoad::RebuildRoad() {
             RoadSurface->add_vertex(Vertex3D);
 
             const int NextJ = (j + 1) % ProfileCount;
-            CurrentPerimeter += Profile[j].Position.distance_to(Profile[NextJ].Position);
+            CurrentPerimeter += p_profile[j].Position.distance_to(p_profile[NextJ].Position);
         }
 
-        // 3b. Vertices Lignes (Rubans)
+        // Lignes
         for (int k = 0; k < RibbonCountTotal; ++k) {
-            const Vector3 Center = CurrentPoint + (Right * Ribbons[k].OffsetX) + (OrthogonalUp * (RoadThickness * 0.5f + LineOffset));
-            const Vector3 LeftVertex = Center - (Right * (LineWidth * 0.5f));
-            const Vector3 RightVertex = Center + (Right * (LineWidth * 0.5f));
+            const Vector3 Center = CurrentPoint + (Right * p_ribbons[k].OffsetX) + (OrthogonalUp * (RoadThickness * 0.5f + LineOffset));
+            // On soustrait l'origine ici aussi
+            const Vector3 LeftVertex = (Center - (Right * (LineWidth * 0.5f))) - ChunkOrigin;
+            const Vector3 RightVertex = (Center + (Right * (LineWidth * 0.5f))) - ChunkOrigin;
 
-            LineSurface->set_color(Ribbons[k].ColorValue);
+            LineSurface->set_color(p_ribbons[k].ColorValue);
             LineSurface->set_normal(OrthogonalUp);
             LineSurface->set_uv(Vector2(0.0f, DistanceAlongCurve * UvScale.y));
             LineSurface->add_vertex(LeftVertex);
 
-            LineSurface->set_color(Ribbons[k].ColorValue);
+            LineSurface->set_color(p_ribbons[k].ColorValue);
             LineSurface->set_normal(OrthogonalUp);
             LineSurface->set_uv(Vector2(1.0f, DistanceAlongCurve * UvScale.y));
             LineSurface->add_vertex(RightVertex);
         }
 
-        if (i < PointCount - 1) {
-            DistanceAlongCurve += CurrentPoint.distance_to(Points[i + 1]);
+        if (i < p_end_idx) {
+            DistanceAlongCurve += CurrentPoint.distance_to(p_points[i + 1]);
         }
     }
 
-    // --- 4. TISSAGE DES TRIANGLES (INDEXATION) ---
-    for (int i = 0; i < PointCount - 1; ++i) {
-        // 4a. Indexation Asphalte
-        const int CurrentRing = i * ProfileCount;
-        const int NextRing = (i + 1) * ProfileCount;
+    // --- 2. INDEXATION ---
+    for (int local_i = 0; local_i < LocalPointCount - 1; ++local_i) {
+        // Asphalte
+        const int CurrentRing = local_i * ProfileCount;
+        const int NextRing = (local_i + 1) * ProfileCount;
 
         for (int j = 0; j < ProfileCount; ++j) {
             const int NextJ = (j + 1) % ProfileCount;
@@ -542,11 +618,11 @@ void ProceduralRoad::RebuildRoad() {
             RoadSurface->add_index(NextRing + NextJ);
         }
 
-        // 4b. Indexation Lignes (Winding Order Inversé)
+        // Lignes
         for (int k = 0; k < RibbonCountTotal; ++k) {
-            const int CurrentLeft = (i * RibbonCountTotal * 2) + (k * 2);
+            const int CurrentLeft = (local_i * RibbonCountTotal * 2) + (k * 2);
             const int CurrentRight = CurrentLeft + 1;
-            const int NextLeft = ((i + 1) * RibbonCountTotal * 2) + (k * 2);
+            const int NextLeft = ((local_i + 1) * RibbonCountTotal * 2) + (k * 2);
             const int NextRight = NextLeft + 1;
 
             LineSurface->add_index(CurrentLeft);
@@ -562,32 +638,23 @@ void ProceduralRoad::RebuildRoad() {
     RoadSurface->generate_tangents();
     LineSurface->generate_tangents();
 
-    // --- 5. ASSEMBLAGE BASE (ASPHALTE) ET PHYSIQUE ---
+    // --- 3. COMMIT ET ASSIGNATION ---
     Ref<ArrayMesh> FinalMesh = RoadSurface->commit();
-    if (RoadMaterial.is_valid()) {
-        FinalMesh->surface_set_material(0, RoadMaterial);
-    }
+    if (RoadMaterial.is_valid()) FinalMesh->surface_set_material(0, RoadMaterial);
 
-    // Génération de la collision UNIQUEMENT sur l'asphalte
     if (UseCollision && FinalMesh.is_valid()) {
         Ref<Shape3D> Trimesh = FinalMesh->create_trimesh_shape();
-        RoadCollisionShape->set_shape(Trimesh);
+        Chunk.CollisionShape->set_shape(Trimesh);
     } else {
-        RoadCollisionShape->set_shape(Ref<Shape3D>());
+        Chunk.CollisionShape->set_shape(Ref<Shape3D>());
     }
 
-    // --- 6. INJECTION DES LIGNES ET SHADER ---
-    // On ajoute la surface des lignes (Surface 1) au FinalMesh
     LineSurface->commit(FinalMesh);
-
     if (MarkingsMaterial.is_valid()) {
         FinalMesh->surface_set_material(1, MarkingsMaterial);
-
-        // C'est ici qu'on pousse les paramètres de l'inspecteur vers le Shader GPU
         MarkingsMaterial->set("shader_parameter/dash_length", DashLength);
         MarkingsMaterial->set("shader_parameter/dash_gap", DashGap);
     }
 
-    // --- 7. RENDU FINAL ---
-    RoadMeshInstance->set_mesh(FinalMesh);
+    Chunk.MeshInst->set_mesh(FinalMesh);
 }
