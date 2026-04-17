@@ -62,7 +62,6 @@ namespace godot {
         void OnCurveChanged();
         Vector<ProfileVertex> BuildCrossSectionProfile() const;
         void AutoSmoothCurve();
-        float GetTotalRoadWidth() const;
 
         void UpdateChunkCount(int p_target_count);
         void GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p_end_idx, const PackedVector3Array& p_points, const PackedVector3Array& p_up_vectors, const PackedVector3Array& p_forwards, float p_start_distance, const Vector<ProfileVertex>& p_profile, const Vector<RibbonDef>& p_ribbons);
@@ -148,6 +147,8 @@ namespace godot {
         NodePath GetConnectedStart() const;
         void SetConnectedEnd(NodePath p_path);
         NodePath GetConnectedEnd() const;
+        float GetTotalRoadWidth() const;
+
     };
 }
 #endif

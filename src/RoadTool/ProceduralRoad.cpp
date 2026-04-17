@@ -652,6 +652,16 @@ void ProceduralRoad::RebuildRoad() {
             Points, UpVectors, Forwards, Ranges[c].StartDistance, Profile, Ribbons
         );
     }
+
+    // On notifie les intersections de reconstruire leur géométrie centrale
+    if (!ConnectedStart.is_empty() && is_inside_tree()) {
+        ProceduralIntersection* inter = Object::cast_to<ProceduralIntersection>(get_node_or_null(ConnectedStart));
+        if (inter) inter->RebuildIntersection();
+    }
+    if (!ConnectedEnd.is_empty() && is_inside_tree()) {
+        ProceduralIntersection* inter = Object::cast_to<ProceduralIntersection>(get_node_or_null(ConnectedEnd));
+        if (inter) inter->RebuildIntersection();
+    }
 }
 
 void ProceduralRoad::SetChunkLength(float p_length) {
