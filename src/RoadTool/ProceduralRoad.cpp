@@ -89,6 +89,10 @@ void ProceduralRoad::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_connected_end", "path"), &ProceduralRoad::SetConnectedEnd);
     ClassDB::bind_method(D_METHOD("get_connected_end"), &ProceduralRoad::GetConnectedEnd);
 
+    ClassDB::bind_method(D_METHOD("set_trigger_snap_to_terrain", "trigger"), &ProceduralRoad::SetTriggerSnapToTerrain);
+    ClassDB::bind_method(D_METHOD("get_trigger_snap_to_terrain"), &ProceduralRoad::GetTriggerSnapToTerrain);
+    ClassDB::bind_method(D_METHOD("snap_points_to_terrain"), &ProceduralRoad::SnapPointsToTerrain);
+
     ADD_GROUP("Road Geometry", "");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "road_thickness"), "set_road_thickness", "get_road_thickness");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "profile_resolution"), "set_profile_resolution", "get_profile_resolution");
@@ -136,6 +140,9 @@ void ProceduralRoad::_bind_methods() {
     // PROPERTY_HINT_NODE_PATH_VALID_TYPES force l'inspecteur Godot à n'accepter QUE les ProceduralIntersection !
     ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "connected_start", PROPERTY_HINT_NODE_PATH_VALID_TYPES, "ProceduralIntersection"), "set_connected_start", "get_connected_start");
     ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "connected_end", PROPERTY_HINT_NODE_PATH_VALID_TYPES, "ProceduralIntersection"), "set_connected_end", "get_connected_end");
+
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "snap_points_to_terrain_button"), "set_trigger_snap_to_terrain", "get_trigger_snap_to_terrain");
+
 }
 
 ProceduralRoad::ProceduralRoad() {
@@ -379,6 +386,65 @@ void ProceduralRoad::SetConnectedEnd(NodePath p_path) {
     RebuildRoad();
 }
 NodePath ProceduralRoad::GetConnectedEnd() const { return ConnectedEnd; }
+
+void ProceduralRoad::SetTriggerSnapToTerrain(bool p_trigger) {
+    TriggerSnapToTerrain = p_trigger;
+    if (p_trigger) {
+        SnapPointsToTerrain();
+        TriggerSnapToTerrain = false;
+    }
+}
+
+bool ProceduralRoad::GetTriggerSnapToTerrain() const {
+    return TriggerSnapToTerrain;
+}
+
+void ProceduralRoad::SnapPointsToTerrain() {
+    if (TerrainPath.is_empty()) {
+        UtilityFunctions::printerr("ProceduralRoad: Impossible de plaquer au sol. TerrainPath est vide.");
+        return;
+    }
+
+    Node* terrain_node = get_node_or_null(TerrainPath);
+    if (!terrain_node) return;
+
+    Object* storage = nullptr;
+    if (terrain_node->has_method("get_data")) storage = terrain_node->call("get_data").get_validated_object();
+    else if (terrain_node->has_method("get_storage")) storage = terrain_node->call("get_storage").get_validated_object();
+
+    if (!storage || !storage->has_method("get_height")) return;
+
+    Ref<Curve3D> curve = get_curve();
+    if (curve.is_null() || curve->get_point_count() == 0) return;
+
+    Transform3D my_global = get_global_transform();
+    Transform3D my_inv = my_global.affine_inverse();
+    bool modified = false;
+
+    for (int i = 0; i < curve->get_point_count(); ++i) {
+        Vector3 local_p = curve->get_point_position(i);
+        Vector3 global_p = my_global.xform(local_p);
+
+        // On demande à Terrain3D la hauteur exacte à ces coordonnées (X, Z)
+        Variant height_var = storage->call("get_height", global_p);
+
+        if (height_var.get_type() == Variant::FLOAT) {
+            float height = height_var;
+
+            // Sécurité : Terrain3D renvoie parfois NaN si on est hors des limites de la map
+            if (!Math::is_nan(height)) {
+                global_p.y = height;
+                Vector3 new_local = my_inv.xform(global_p);
+                curve->set_point_position(i, new_local);
+                modified = true;
+            }
+        }
+    }
+
+    if (modified) {
+        RebuildRoad();
+    }
+}
 
 void ProceduralRoad::AutoSmoothCurve() {
     Ref<Curve3D> CurrentCurve = get_curve();

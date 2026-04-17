@@ -80,6 +80,8 @@ namespace godot {
         NodePath ConnectedStart;
         NodePath ConnectedEnd;
 
+        bool TriggerSnapToTerrain = false;
+
     protected:
         static void _bind_methods();
         void _notification(int p_what);
@@ -147,6 +149,9 @@ namespace godot {
         void SetConnectedEnd(NodePath p_path);
         NodePath GetConnectedEnd() const;
         float GetTotalRoadWidth() const;
+        void SetTriggerSnapToTerrain(bool p_trigger);
+        bool GetTriggerSnapToTerrain() const;
+        void SnapPointsToTerrain();
 
 
 
