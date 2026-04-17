@@ -79,6 +79,9 @@ namespace godot {
         float TerrainDepthOffset = 0.1f;
         void BakeTerrain();
 
+        NodePath ConnectedStart;
+        NodePath ConnectedEnd;
+
     protected:
         static void _bind_methods();
         void _notification(int p_what);
@@ -133,7 +136,6 @@ namespace godot {
         float GetDashGap() const;
         void SetChunkLength(float p_length);
         float GetChunkLength() const;
-
         void SetTerrainPath(NodePath p_path);
         NodePath GetTerrainPath() const;
         void SetTerrainFalloff(float p_falloff);
@@ -142,6 +144,10 @@ namespace godot {
         bool GetTriggerBakeTerrain() const;
         void SetTerrainDepthOffset(float p_offset);
         float GetTerrainDepthOffset() const;
+        void SetConnectedStart(NodePath p_path);
+        NodePath GetConnectedStart() const;
+        void SetConnectedEnd(NodePath p_path);
+        NodePath GetConnectedEnd() const;
     };
 }
 #endif

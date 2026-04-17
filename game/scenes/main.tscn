@@ -105,6 +105,30 @@ _data = {
 }
 point_count = 8
 
+[sub_resource type="Curve3D" id="Curve3D_tbgi4"]
+bake_interval = 0.5
+_data = {
+"points": PackedVector3Array(0, 0, 0, 8.582399, 0, 5.1324887, -48.614944, 0, -0.12975693, -11.380867, -0.30889353, 0.29567173, 14.048699, 0.38130245, -0.3649813, -14.596756, 1.5666237, 20.213966, -13.960177, -4.847698e-06, 1.6607242, 12.683933, 4.40452e-06, -1.5089002, 21.753265, 1.5666504, -2.0030022, -10.488893, 0, -7.289862, 7.9600043, 0, 5.532265, 58.594086, 1.5666504, 9.871315, -0.60204625, 0, -9.674976, 1.1944879, 0, 19.195604, 76.78616, 1.5666504, 32.934887, 9.947032, 0, -16.460701, 0, 0, 0, 46.643646, 1.5666504, 82.815796),
+"tilts": PackedFloat32Array(0, 0, 0, 0, 0, 0)
+}
+point_count = 6
+
+[sub_resource type="Curve3D" id="Curve3D_tefeu"]
+bake_interval = 0.5
+_data = {
+"points": PackedVector3Array(0, 0, 0, -2.8990936, 0, 9.570541, 5.911148, 0, -25.176723, 6.7615314, 0, -9.5464735, -8.278938, 0, 11.68887, -12.072975, 0, 34.192802, 12.566137, 0, -6.874787, -22.723305, 0, 12.431655, -44.67163, 0, 62.85208, 25.886524, 0, 0.88459194, -15.223704, 0, -0.5202231, -120.104, 0, 84.54555, 14.317686, 0, 5.199585, 0, 0, 0, -163.49092, 0, 68.78923),
+"tilts": PackedFloat32Array(0, 0, 0, 0, 0)
+}
+point_count = 5
+
+[sub_resource type="Curve3D" id="Curve3D_o6xl0"]
+bake_interval = 0.5
+_data = {
+"points": PackedVector3Array(0, 0, 0, 2.7435384, 0, -9.616288, -4.561569, -3.8146973e-06, 19.07877, -7.7533402, 0, 12.711784, 7.4142046, 0, -12.155763, 10.993935, -3.8146973e-06, -35.444336, -10.36919, 0, 9.75771, 15.898063, 0, -14.96054, 38.92904, -3.8146973e-06, -68.327065, -10.924942, 0, 18.90005, 10.421681, 0, -18.029413, 91.85198, -3.8146973e-06, -108.017654, -2.5118694, 0, 20.672728, 0, 0, 0, 99.46371, -3.8146973e-06, -170.66228),
+"tilts": PackedFloat32Array(0, 0, 0, 0, 0)
+}
+point_count = 5
+
 [node name="Main" type="Node" unique_id=462397334]
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=985087585]
@@ -126,7 +150,7 @@ metadata/_edit_lock_ = true
 [node name="TruckVehicle" parent="." unique_id=199068106 instance=ExtResource("3_sugp2")]
 transform = Transform3D(-0.13756558, 0, -0.9904927, 0, 1, 0, 0.9904927, 0, -0.13756558, -14.495585, -0.26713037, -0.5448483)
 
-[node name="ProceduralRoad" type="ProceduralRoad" parent="." unique_id=1706347445]
+[node name="ProceduralRoadTest1" type="ProceduralRoad" parent="." unique_id=1706347445]
 road_material = ExtResource("1_sugp2")
 markings_material = ExtResource("2_sugp2")
 edge_line_type = 1
@@ -135,3 +159,29 @@ dash_gap = 3.5
 terrain_path = NodePath("../Terrain3D")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.890584, 0)
 curve = SubResource("Curve3D_sugp2")
+
+[node name="ProceduralRoad" type="ProceduralRoad" parent="." unique_id=923019842]
+road_material = ExtResource("1_sugp2")
+markings_material = ExtResource("2_sugp2")
+connected_start = NodePath("../ProceduralIntersection")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 148.03195, 0, 34.998943)
+curve = SubResource("Curve3D_tbgi4")
+
+[node name="ProceduralIntersection" type="ProceduralIntersection" parent="." unique_id=501897523]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 90.83461, 0, 29.736698)
+
+[node name="ProceduralRoad2" type="ProceduralRoad" parent="." unique_id=1603060400]
+road_material = ExtResource("1_sugp2")
+markings_material = ExtResource("2_sugp2")
+terrain_path = NodePath("../Terrain3D")
+connected_start = NodePath("../ProceduralIntersection")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 82.02437, 0, 64.48396)
+curve = SubResource("Curve3D_tefeu")
+
+[node name="ProceduralRoad3" type="ProceduralRoad" parent="." unique_id=682435532]
+road_material = ExtResource("1_sugp2")
+markings_material = ExtResource("2_sugp2")
+terrain_path = NodePath("../Terrain3D")
+connected_start = NodePath("../ProceduralIntersection")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 98.13972, 3.8146973e-06, 1.0416403)
+curve = SubResource("Curve3D_o6xl0")

@@ -10,4 +10,4 @@ shader = ExtResource("1_qx0d2")
 shader_parameter/road_normal_map = ExtResource("2_78s2x")
 shader_parameter/road_roughness_map = ExtResource("3_q2db7")
 shader_parameter/dash_length = 3.0
-shader_parameter/dash_gap = 3.5
+shader_parameter/dash_gap = 10.0
