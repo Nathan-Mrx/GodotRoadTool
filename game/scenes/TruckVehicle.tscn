@@ -192,8 +192,13 @@ size = Vector3(1.3059082, 0.29248047, 1.0562744)
 [sub_resource type="BoxShape3D" id="BoxShape3D_s552e"]
 size = Vector3(1.2964478, 0.19726563, 0.9824219)
 
+[sub_resource type="Environment" id="Environment_kgh60"]
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.002
+
 [node name="TruckVehicle" type="VehicleBody3D" unique_id=199068106]
-mass = 240.0
+collision_mask = 7
+mass = 15000.0
 center_of_mass_mode = 1
 center_of_mass = Vector3(0, 0, 0.2)
 script = ExtResource("1_kgh60")
@@ -210,10 +215,13 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.525, 0.3, -0.61)
 use_as_traction = true
 wheel_roll_influence = 0.0
 wheel_radius = 0.32
-suspension_travel = 10.0
-suspension_stiffness = 40.0
-damping_compression = 1.9
-damping_relaxation = 2.0
+wheel_rest_length = 0.05
+wheel_friction_slip = 12.0
+suspension_travel = 0.5
+suspension_stiffness = 80.0
+suspension_max_force = 50000.0
+damping_compression = 4.0
+damping_relaxation = 5.0
 
 [node name="wheel-back-left" type="MeshInstance3D" parent="VehicleWheel3D_BL" unique_id=1244960228]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.15, 0, 0)
@@ -225,10 +233,13 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.45, 0.3, 1.01)
 use_as_steering = true
 wheel_roll_influence = 0.0
 wheel_radius = 0.32
-suspension_travel = 10.0
-suspension_stiffness = 40.0
-damping_compression = 1.9
-damping_relaxation = 2.0
+wheel_rest_length = 0.05
+wheel_friction_slip = 12.0
+suspension_travel = 0.5
+suspension_stiffness = 80.0
+suspension_max_force = 50000.0
+damping_compression = 4.0
+damping_relaxation = 5.0
 
 [node name="wheel-front-left" type="MeshInstance3D" parent="VehicleWheel3D_FL" unique_id=19539027]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.15, 0, 0)
@@ -240,10 +251,13 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.525, 0.3, -0.61)
 use_as_traction = true
 wheel_roll_influence = 0.0
 wheel_radius = 0.32
-suspension_travel = 10.0
-suspension_stiffness = 40.0
-damping_compression = 1.9
-damping_relaxation = 2.0
+wheel_rest_length = 0.05
+wheel_friction_slip = 12.0
+suspension_travel = 0.5
+suspension_stiffness = 80.0
+suspension_max_force = 50000.0
+damping_compression = 4.0
+damping_relaxation = 5.0
 
 [node name="wheel-back-right" type="MeshInstance3D" parent="VehicleWheel3D_BR" unique_id=658912464]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.15, 0, 0)
@@ -255,10 +269,13 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.45, 0.3, 1.01)
 use_as_steering = true
 wheel_roll_influence = 0.0
 wheel_radius = 0.32
-suspension_travel = 10.0
-suspension_stiffness = 40.0
-damping_compression = 1.9
-damping_relaxation = 2.0
+wheel_rest_length = 0.05
+wheel_friction_slip = 12.0
+suspension_travel = 0.5
+suspension_stiffness = 80.0
+suspension_max_force = 50000.0
+damping_compression = 4.0
+damping_relaxation = 5.0
 
 [node name="wheel-front-right" type="MeshInstance3D" parent="VehicleWheel3D_FR" unique_id=1126950580]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.15, 0, 0)
@@ -282,9 +299,10 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.00090789795, 0.3975922, -1
 shape = SubResource("BoxShape3D_s552e")
 
 [node name="SpringArm" type="SpringArm3D" parent="." unique_id=1721850495]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9426426, 0.86368906)
-collision_mask = 0
+transform = Transform3D(-0.9163628, -0.25840846, 0.30578512, 0, 0.76379615, 0.64545774, -0.4003492, 0.5914734, -0.6999143, 0, 0.9426426, 0.86368906)
+collision_mask = 6
 spring_length = 5.0
 script = ExtResource("3_qhfhd")
 
 [node name="Camera" type="Camera3D" parent="SpringArm" unique_id=1073338400]
+environment = SubResource("Environment_kgh60")

@@ -52,7 +52,6 @@ void ProceduralRoad::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_use_collision", "use"), &ProceduralRoad::SetUseCollision);
     ClassDB::bind_method(D_METHOD("get_use_collision"), &ProceduralRoad::GetUseCollision);
 
-    // Internal callback name kept snake_case for Godot signal Callable lookup.
     ClassDB::bind_method(D_METHOD("_on_curve_changed"), &ProceduralRoad::OnCurveChanged);
 
     ClassDB::bind_method(D_METHOD("set_line_offset", "offset"), &ProceduralRoad::SetLineOffset);
@@ -75,12 +74,14 @@ void ProceduralRoad::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_chunk_length", "length"), &ProceduralRoad::SetChunkLength);
     ClassDB::bind_method(D_METHOD("get_chunk_length"), &ProceduralRoad::GetChunkLength);
 
-    ClassDB::bind_method(D_METHOD("set_snap_to_terrain", "snap"), &ProceduralRoad::SetSnapToTerrain);
-    ClassDB::bind_method(D_METHOD("get_snap_to_terrain"), &ProceduralRoad::GetSnapToTerrain);
-    ClassDB::bind_method(D_METHOD("set_terrain_collision_mask", "mask"), &ProceduralRoad::SetTerrainCollisionMask);
-    ClassDB::bind_method(D_METHOD("get_terrain_collision_mask"), &ProceduralRoad::GetTerrainCollisionMask);
-    ClassDB::bind_method(D_METHOD("set_terrain_offset", "offset"), &ProceduralRoad::SetTerrainOffset);
-    ClassDB::bind_method(D_METHOD("get_terrain_offset"), &ProceduralRoad::GetTerrainOffset);
+    ClassDB::bind_method(D_METHOD("set_terrain_path", "path"), &ProceduralRoad::SetTerrainPath);
+    ClassDB::bind_method(D_METHOD("get_terrain_path"), &ProceduralRoad::GetTerrainPath);
+    ClassDB::bind_method(D_METHOD("set_terrain_falloff", "falloff"), &ProceduralRoad::SetTerrainFalloff);
+    ClassDB::bind_method(D_METHOD("get_terrain_falloff"), &ProceduralRoad::GetTerrainFalloff);
+    ClassDB::bind_method(D_METHOD("set_trigger_bake_terrain", "trigger"), &ProceduralRoad::SetTriggerBakeTerrain);
+    ClassDB::bind_method(D_METHOD("get_trigger_bake_terrain"), &ProceduralRoad::GetTriggerBakeTerrain);
+    ClassDB::bind_method(D_METHOD("set_terrain_depth_offset", "offset"), &ProceduralRoad::SetTerrainDepthOffset);
+    ClassDB::bind_method(D_METHOD("get_terrain_depth_offset"), &ProceduralRoad::GetTerrainDepthOffset);
 
     ADD_GROUP("Road Geometry", "");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "road_thickness"), "set_road_thickness", "get_road_thickness");
@@ -119,10 +120,11 @@ void ProceduralRoad::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "dash_length"), "set_dash_length", "get_dash_length");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "dash_gap"), "set_dash_gap", "get_dash_gap");
 
-    ADD_GROUP("Terrain Snapping", "");
-    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "snap_to_terrain"), "set_snap_to_terrain", "get_snap_to_terrain");
-    ADD_PROPERTY(PropertyInfo(Variant::INT, "terrain_collision_mask", PROPERTY_HINT_LAYERS_3D_PHYSICS), "set_terrain_collision_mask", "get_terrain_collision_mask");
-    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "terrain_offset"), "set_terrain_offset", "get_terrain_offset");
+    ADD_GROUP("Terraforming", "");
+    ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "terrain_path", PROPERTY_HINT_NODE_PATH_VALID_TYPES, "Terrain3D"), "set_terrain_path", "get_terrain_path");
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "terrain_falloff"), "set_terrain_falloff", "get_terrain_falloff");
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "terrain_depth_offset"), "set_terrain_depth_offset", "get_terrain_depth_offset");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "trigger_bake_terrain"), "set_trigger_bake_terrain", "get_trigger_bake_terrain");
 }
 
 ProceduralRoad::ProceduralRoad() {
@@ -340,74 +342,88 @@ float ProceduralRoad::GetDashLength() const { return DashLength; }
 void ProceduralRoad::SetDashGap(float p_gap) { DashGap = p_gap; RebuildRoad(); }
 float ProceduralRoad::GetDashGap() const { return DashGap; }
 
-void ProceduralRoad::SetSnapToTerrain(bool p_snap)
-{
-    SnapToTerrain = p_snap;
-    RebuildRoad();
-}
+void ProceduralRoad::SetTerrainPath(NodePath p_path) { TerrainPath = p_path; }
+NodePath ProceduralRoad::GetTerrainPath() const { return TerrainPath; }
+void ProceduralRoad::SetTerrainFalloff(float p_falloff) { TerrainFalloff = p_falloff; }
+float ProceduralRoad::GetTerrainFalloff() const { return TerrainFalloff; }
 
-bool ProceduralRoad::GetSnapToTerrain() const
-{
-    return SnapToTerrain;
+void ProceduralRoad::SetTriggerBakeTerrain(bool p_trigger) {
+    if (p_trigger) {
+        BakeTerrain();
+    }
 }
+bool ProceduralRoad::GetTriggerBakeTerrain() const { return false; }
 
-void ProceduralRoad::SetTerrainCollisionMask(uint32_t p_mask)
-{
-    TerrainCollisionMask = p_mask;
-    RebuildRoad();
-}
-
-uint32_t ProceduralRoad::GetTerrainCollisionMask() const
-{
-    return TerrainCollisionMask;
-}
-
-void ProceduralRoad::SetTerrainOffset(float p_offset)
-{
-    TerrainOffset = p_offset;
-    RebuildRoad();
-}
-
-float ProceduralRoad::GetTerrainOffset() const
-{
-    return TerrainOffset;
-}
+void ProceduralRoad::SetTerrainDepthOffset(float p_offset) { TerrainDepthOffset = p_offset; }
+float ProceduralRoad::GetTerrainDepthOffset() const { return TerrainDepthOffset; }
 
 void ProceduralRoad::AutoSmoothCurve() {
-    Ref<Curve3D> Curve = get_curve();
-    if (Curve.is_null() || Curve->get_point_count() < 3) {
+    Ref<Curve3D> CurrentCurve = get_curve();
+    if (CurrentCurve.is_null() || CurrentCurve->get_point_count() < 2) {
         return;
     }
 
-    const int Count = Curve->get_point_count();
-    const float Tension = 0.33f;
+    int PointCount = CurrentCurve->get_point_count();
 
-    for (int i = 0; i < Count; ++i) {
-        if (i == 0) {
-            Vector3 CurrentPoint = Curve->get_point_position(0);
-            Vector3 NextPoint = Curve->get_point_position(1);
-            Vector3 Direction = (NextPoint - CurrentPoint).normalized();
-            Curve->set_point_in(0, Vector3(0, 0, 0));
-            Curve->set_point_out(0, Direction * (CurrentPoint.distance_to(NextPoint) * Tension));
-            continue;
-        }
-
-        if (i == Count - 1) {
-            Vector3 PreviousPoint = Curve->get_point_position(i - 1);
-            Vector3 CurrentPoint = Curve->get_point_position(i);
-            Vector3 Direction = (CurrentPoint - PreviousPoint).normalized();
-            Curve->set_point_in(i, -Direction * (CurrentPoint.distance_to(PreviousPoint) * Tension));
-            Curve->set_point_out(i, Vector3(0, 0, 0));
-            continue;
-        }
-
-        Vector3 PreviousPoint = Curve->get_point_position(i - 1);
-        Vector3 CurrentPoint = Curve->get_point_position(i);
-        Vector3 NextPoint = Curve->get_point_position(i + 1);
-        Vector3 Direction = (NextPoint - PreviousPoint).normalized();
-        Curve->set_point_in(i, -Direction * (CurrentPoint.distance_to(PreviousPoint) * Tension));
-        Curve->set_point_out(i, Direction * (CurrentPoint.distance_to(NextPoint) * Tension));
+    bool was_connected = CurrentCurve->is_connected("changed", Callable(this, "_on_curve_changed"));
+    if (was_connected) {
+        CurrentCurve->disconnect("changed", Callable(this, "_on_curve_changed"));
     }
+
+    // LE FIX : On écoute l'API native de Godot 4 pour les courbes fermées
+    bool is_loop = CurrentCurve->is_closed() || (PointCount > 2 && CurrentCurve->get_point_position(0).distance_to(CurrentCurve->get_point_position(PointCount - 1)) < 0.05f);
+
+    float Tension = 0.33f;
+
+    for (int i = 0; i < PointCount; ++i) {
+        Vector3 p_curr = CurrentCurve->get_point_position(i);
+        Vector3 p_prev, p_next;
+
+        if (is_loop) {
+            // Le point précédent du départ est l'arrivée, et vice-versa
+            p_prev = CurrentCurve->get_point_position((i == 0) ? PointCount - 1 : i - 1);
+            p_next = CurrentCurve->get_point_position((i == PointCount - 1) ? 0 : i + 1);
+        } else {
+            p_prev = (i == 0) ? p_curr : CurrentCurve->get_point_position(i - 1);
+            p_next = (i == PointCount - 1) ? p_curr : CurrentCurve->get_point_position(i + 1);
+        }
+
+        Vector3 Dir;
+        float DistIn = p_curr.distance_to(p_prev) * Tension;
+        float DistOut = p_curr.distance_to(p_next) * Tension;
+
+        if (!is_loop && i == 0) {
+            Dir = (p_next - p_curr).normalized();
+            CurrentCurve->set_point_in(i, Vector3(0, 0, 0));
+            CurrentCurve->set_point_out(i, Dir * DistOut);
+        } else if (!is_loop && i == PointCount - 1) {
+            Dir = (p_curr - p_prev).normalized();
+            CurrentCurve->set_point_in(i, -Dir * DistIn);
+            CurrentCurve->set_point_out(i, Vector3(0, 0, 0));
+        } else {
+            Vector3 v_in = (p_curr - p_prev).normalized();
+            Vector3 v_out = (p_next - p_curr).normalized();
+
+            Dir = (v_in + v_out).normalized();
+
+            if (Dir.length_squared() < 0.001f) {
+                Dir = v_in.cross(Vector3(0, 1, 0)).normalized();
+                if (Dir.length_squared() < 0.001f) {
+                    Dir = Vector3(0, 0, -1);
+                }
+            }
+
+            CurrentCurve->set_point_in(i, -Dir * DistIn);
+            CurrentCurve->set_point_out(i, Dir * DistOut);
+        }
+    }
+
+    if (was_connected) {
+        CurrentCurve->connect("changed", Callable(this, "_on_curve_changed"));
+    }
+
+    CurrentCurve->emit_signal("changed");
+    RebuildRoad();
 }
 
 Vector<ProfileVertex> ProceduralRoad::BuildCrossSectionProfile() const {
@@ -479,94 +495,60 @@ void ProceduralRoad::RebuildRoad() {
         add_ribbons(Offset, IsCenter ? CenterLineColor : LaneLineColor, IsCenter ? CenterLineType : LaneLineType);
     }
 
-    PackedVector3Array Points = CurrentCurve->get_baked_points();
-    PackedVector3Array UpVectors = CurrentCurve->get_baked_up_vectors();
-    const int PointCount = Points.size();
-
     // ====================================================================
-    // --- NOUVEAU : PROJECTION SUR LE TERRAIN (RAYCAST) ---
+    // --- 1. ÉCHANTILLONNAGE HAUTE PRÉCISION (AVEC TILT INTÉGRÉ !) ---
     // ====================================================================
-    if (SnapToTerrain && is_inside_tree()) {
-        PhysicsDirectSpaceState3D* SpaceState = get_world_3d()->get_direct_space_state();
+    float TotalLength = CurrentCurve->get_baked_length();
+    float SamplingStep = 1.0f;
+    int PointCount = MAX(2, Math::ceil(TotalLength / SamplingStep) + 1);
 
-        if (SpaceState) {
-            // Création de la liste d'exclusion pour ne pas s'auto-détecter
-            TypedArray<RID> ExcludeArray;
-            for (int c = 0; c < Chunks.size(); ++c) {
-                if (Chunks[c].StaticBody && Chunks[c].StaticBody->is_inside_tree()) {
-                    ExcludeArray.push_back(Chunks[c].StaticBody->get_rid());
-                }
-            }
-
-            // --- LE FIX EST ICI : Les Matrices de Transformation ---
-            Transform3D NodeTransform = get_global_transform();
-            Transform3D InverseTransform = NodeTransform.affine_inverse();
-
-            for (int i = 0; i < PointCount; ++i) {
-                // 1. Convertir le point local de la courbe en position globale absolue
-                Vector3 GlobalPoint = NodeTransform.xform(Points[i]);
-
-                // 2. Tirer le rayon dans l'espace global
-                Vector3 RayOrigin = GlobalPoint;
-                RayOrigin.y += 1000.0f;
-                Vector3 RayEnd = GlobalPoint;
-                RayEnd.y -= 1000.0f;
-
-                Ref<PhysicsRayQueryParameters3D> Query = PhysicsRayQueryParameters3D::create(RayOrigin, RayEnd, TerrainCollisionMask);
-                Query->set_exclude(ExcludeArray);
-
-                Dictionary Hit = SpaceState->intersect_ray(Query);
-
-                if (!Hit.is_empty()) {
-                    Vector3 GlobalHitPos = Hit["position"];
-
-                    // 3. Reconvertir le point d'impact global en coordonnées locales
-                    Vector3 LocalHitPos = InverseTransform.xform(GlobalHitPos);
-
-                    // 4. Appliquer la hauteur locale snappée
-                    Points.set(i, Vector3(Points[i].x, LocalHitPos.y + TerrainOffset, Points[i].z));
-                }
-            }
-        }
-    }
-    // ====================================================================
-
-    Vector<ProfileVertex> Profile = BuildCrossSectionProfile();
-    PackedVector3Array Forwards;
-    Forwards.resize(PointCount);
-
-    bool is_loop = (PointCount > 2) && (Points[0].distance_to(Points[PointCount - 1]) < 0.05f);
-
-    if (is_loop) {
-        Points.set(PointCount - 1, Points[0]);
-    }
+    PackedVector3Array Points; Points.resize(PointCount);
+    PackedVector3Array UpVectors; UpVectors.resize(PointCount);
 
     for (int i = 0; i < PointCount; ++i) {
-        Vector3 forward;
-        if (i == 0) {
-            if (is_loop) {
-                forward = (Points[1] - Points[PointCount - 2]).normalized();
-            } else {
-                forward = (Points[1] - Points[0]).normalized();
-            }
-        } else if (i == PointCount - 1) {
-            if (is_loop) {
-                forward = (Points[1] - Points[PointCount - 2]).normalized();
-            } else {
-                forward = (Points[i] - Points[i - 1]).normalized();
-            }
-        } else {
-            forward = (Points[i + 1] - Points[i - 1]).normalized();
-        }
-        Forwards.set(i, forward);
+        float offset = MIN(i * SamplingStep, TotalLength);
+        // LE FIX : true (cubic) et true (apply_tilt). Godot gère le roulis pour nous !
+        Transform3D t = CurrentCurve->sample_baked_with_rotation(offset, true, true);
+
+        Points.set(i, t.origin);
+        UpVectors.set(i, t.basis.get_column(1).normalized());
     }
 
+    bool is_loop = (PointCount > 2) && (Points[0].distance_to(Points[PointCount - 1]) < 0.05f);
     if (is_loop) {
+        Points.set(PointCount - 1, Points[0]);
         Vector3 seam_up = (UpVectors[0] + UpVectors[PointCount - 1]).normalized();
         UpVectors.set(0, seam_up);
         UpVectors.set(PointCount - 1, seam_up);
     }
 
+    // ====================================================================
+    // --- 2. CALCUL MANUEL DES TANGENTES (FORWARDS) ---
+    // ====================================================================
+    PackedVector3Array Forwards; Forwards.resize(PointCount);
+
+    for (int i = 0; i < PointCount; ++i) {
+        Vector3 forward;
+        if (i == 0) {
+            forward = is_loop ? (Points[1] - Points[PointCount - 2]) : (Points[1] - Points[0]);
+        } else if (i == PointCount - 1) {
+            forward = is_loop ? (Points[1] - Points[PointCount - 2]) : (Points[i] - Points[i - 1]);
+        } else {
+            forward = (Points[i + 1] - Points[i - 1]);
+        }
+
+        if (forward.length_squared() < 0.0001f) {
+            forward = Vector3(0, 0, -1);
+        }
+
+        Forwards.set(i, forward.normalized());
+    }
+
+    Vector<ProfileVertex> Profile = BuildCrossSectionProfile();
+
+    // ====================================================================
+    // --- 3. CHUNKING ---
+    // ====================================================================
     struct ChunkRange {
         int StartIdx;
         int EndIdx;
@@ -596,7 +578,10 @@ void ProceduralRoad::RebuildRoad() {
     UpdateChunkCount(Ranges.size());
 
     for (int c = 0; c < Ranges.size(); ++c) {
-        GenerateChunkMesh(c, Ranges[c].StartIdx, Ranges[c].EndIdx, Points, UpVectors, Forwards, Ranges[c].StartDistance, Profile, Ribbons);
+        GenerateChunkMesh(
+            c, Ranges[c].StartIdx, Ranges[c].EndIdx,
+            Points, UpVectors, Forwards, Ranges[c].StartDistance, Profile, Ribbons
+        );
     }
 }
 
@@ -653,55 +638,84 @@ void ProceduralRoad::GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p
     LineSurface.instantiate();
     LineSurface->begin(Mesh::PRIMITIVE_TRIANGLES);
 
-    float DistanceAlongCurve = p_start_distance;
+    // ====================================================================
+    // --- 1. VERTICES & UVS ---
+    // ====================================================================
+    float CenterDistance = 0.0f;
+    Vector<float> RibbonDistances;
+    RibbonDistances.resize(RibbonCountTotal);
+    RibbonDistances.fill(0.0f);
 
-    for (int i = p_start_idx; i <= p_end_idx; ++i) {
+    Vector3 PrevCenter = p_points[0];
+    Vector<Vector3> PrevRibbonCenters;
+    PrevRibbonCenters.resize(RibbonCountTotal);
+
+    const Vector3 InitUp = p_up_vectors[0].normalized();
+    const Vector3 InitForward = p_forwards[0];
+    const Vector3 InitRight = InitForward.cross(InitUp).normalized();
+    const Vector3 InitOrthogonalUp = InitRight.cross(InitForward).normalized();
+
+    for (int k = 0; k < RibbonCountTotal; ++k) {
+        PrevRibbonCenters.write[k] = p_points[0] + (InitRight * p_ribbons[k].OffsetX) + (InitOrthogonalUp * (RoadThickness * 0.5f + LineOffset));
+    }
+
+    for (int i = 0; i <= p_end_idx; ++i) {
         const Vector3 CurrentPoint = p_points[i];
-        const Vector3 CurrentUp = p_up_vectors[i].normalized();
-
-        // --- UTILISATION DIRECTE DU FORWARD LISSÉ ---
         const Vector3 Forward = p_forwards[i];
 
-        const Vector3 Right = Forward.cross(CurrentUp).normalized();
+        // Le vecteur Up est DÉJÀ incliné correctement par Godot !
+        const Vector3 Up = p_up_vectors[i].normalized();
+
+        const Vector3 Right = Forward.cross(Up).normalized();
         const Vector3 OrthogonalUp = Right.cross(Forward).normalized();
 
-        float CurrentPerimeter = 0.0f;
-        for (int j = 0; j < ProfileCount; ++j) {
-            const Vector2 ProfilePos = p_profile[j].Position;
-            const Vector2 ProfileNormal = p_profile[j].Normal;
-
-            const Vector3 Vertex3D = (CurrentPoint + (Right * ProfilePos.x) + (OrthogonalUp * ProfilePos.y)) - ChunkOrigin;
-            const Vector3 Normal3D = ((Right * ProfileNormal.x) + (OrthogonalUp * ProfileNormal.y)).normalized();
-
-            RoadSurface->set_normal(Normal3D);
-            RoadSurface->set_uv(Vector2(CurrentPerimeter * UvScale.x, DistanceAlongCurve * UvScale.y));
-            RoadSurface->add_vertex(Vertex3D);
-
-            const int NextJ = (j + 1) % ProfileCount;
-            CurrentPerimeter += p_profile[j].Position.distance_to(p_profile[NextJ].Position);
-        }
+        if (i > 0) CenterDistance += PrevCenter.distance_to(CurrentPoint);
+        PrevCenter = CurrentPoint;
 
         for (int k = 0; k < RibbonCountTotal; ++k) {
-            const Vector3 Center = CurrentPoint + (Right * p_ribbons[k].OffsetX) + (OrthogonalUp * (RoadThickness * 0.5f + LineOffset));
-            const Vector3 LeftVertex = (Center - (Right * (LineWidth * 0.5f))) - ChunkOrigin;
-            const Vector3 RightVertex = (Center + (Right * (LineWidth * 0.5f))) - ChunkOrigin;
-
-            LineSurface->set_color(p_ribbons[k].ColorValue);
-            LineSurface->set_normal(OrthogonalUp);
-            LineSurface->set_uv(Vector2(0.0f, DistanceAlongCurve * UvScale.y));
-            LineSurface->add_vertex(LeftVertex);
-
-            LineSurface->set_color(p_ribbons[k].ColorValue);
-            LineSurface->set_normal(OrthogonalUp);
-            LineSurface->set_uv(Vector2(1.0f, DistanceAlongCurve * UvScale.y));
-            LineSurface->add_vertex(RightVertex);
+            Vector3 RibbonCenter = CurrentPoint + (Right * p_ribbons[k].OffsetX) + (OrthogonalUp * (RoadThickness * 0.5f + LineOffset));
+            if (i > 0) RibbonDistances.write[k] += PrevRibbonCenters[k].distance_to(RibbonCenter);
+            PrevRibbonCenters.write[k] = RibbonCenter;
         }
 
-        if (i < p_end_idx) {
-            DistanceAlongCurve += CurrentPoint.distance_to(p_points[i + 1]);
+        if (i >= p_start_idx) {
+            float CurrentPerimeter = 0.0f;
+            for (int j = 0; j < ProfileCount; ++j) {
+                const Vector2 ProfilePos = p_profile[j].Position;
+                const Vector2 ProfileNormal = p_profile[j].Normal;
+
+                Vector3 Vertex3D = (CurrentPoint + (Right * ProfilePos.x) + (OrthogonalUp * ProfilePos.y)) - ChunkOrigin;
+                const Vector3 Normal3D = ((Right * ProfileNormal.x) + (OrthogonalUp * ProfileNormal.y)).normalized();
+
+                RoadSurface->set_normal(Normal3D);
+                RoadSurface->set_uv(Vector2(CurrentPerimeter * UvScale.x, CenterDistance * UvScale.y));
+                RoadSurface->add_vertex(Vertex3D);
+
+                const int NextJ = (j + 1) % ProfileCount;
+                CurrentPerimeter += p_profile[j].Position.distance_to(p_profile[NextJ].Position);
+            }
+
+            for (int k = 0; k < RibbonCountTotal; ++k) {
+                Vector3 Center = PrevRibbonCenters[k];
+                Vector3 LeftVertex = (Center - (Right * (LineWidth * 0.5f))) - ChunkOrigin;
+                Vector3 RightVertex = (Center + (Right * (LineWidth * 0.5f))) - ChunkOrigin;
+
+                LineSurface->set_color(p_ribbons[k].ColorValue);
+                LineSurface->set_normal(OrthogonalUp);
+                LineSurface->set_uv(Vector2(0.0f, RibbonDistances[k] * UvScale.y));
+                LineSurface->add_vertex(LeftVertex);
+
+                LineSurface->set_color(p_ribbons[k].ColorValue);
+                LineSurface->set_normal(OrthogonalUp);
+                LineSurface->set_uv(Vector2(1.0f, RibbonDistances[k] * UvScale.y));
+                LineSurface->add_vertex(RightVertex);
+            }
         }
     }
 
+    // ====================================================================
+    // --- 2. INDEXATION (LE BLOC QUI TE MANQUAIT) ---
+    // ====================================================================
     for (int local_i = 0; local_i < LocalPointCount - 1; ++local_i) {
         const int CurrentRing = local_i * ProfileCount;
         const int NextRing = (local_i + 1) * ProfileCount;
@@ -733,6 +747,9 @@ void ProceduralRoad::GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p
         }
     }
 
+    // ====================================================================
+    // --- 3. COMMIT DES MESHES ---
+    // ====================================================================
     RoadSurface->generate_tangents();
     LineSurface->generate_tangents();
 
@@ -754,4 +771,144 @@ void ProceduralRoad::GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p
     }
 
     Chunk.MeshInst->set_mesh(FinalMesh);
+}
+
+void ProceduralRoad::BakeTerrain() {
+    if (TerrainPath.is_empty()) return;
+
+    Node* terrain_node = get_node_or_null(TerrainPath);
+    if (!terrain_node) {
+        UtilityFunctions::printerr("ProceduralRoad: Terrain3D node not found.");
+        return;
+    }
+
+    Object* storage = nullptr;
+    if (terrain_node->has_method("get_data")) {
+        storage = terrain_node->call("get_data").get_validated_object();
+    } else if (terrain_node->has_method("get_storage")) {
+        storage = terrain_node->call("get_storage").get_validated_object();
+    }
+
+    if (!storage) {
+        UtilityFunctions::printerr("ProceduralRoad: Failed to get Terrain3D Data/Storage API.");
+        return;
+    }
+
+    Ref<Curve3D> CurrentCurve = get_curve();
+    if (CurrentCurve.is_null() || CurrentCurve->get_point_count() < 2) return;
+
+    const float SamplingStep = 1.0f;
+    const float TotalLength = CurrentCurve->get_baked_length();
+    const int PointCount = MAX(2, Math::ceil(TotalLength / SamplingStep) + 1);
+    const Transform3D NodeTransform = get_global_transform();
+    const float RoadHalfWidth = GetTotalRoadWidth() * 0.5f;
+
+    const float SafetyBuffer = 1.5f;
+    const float FlatZone = RoadHalfWidth + SafetyBuffer;
+    const float SearchRadius = FlatZone + TerrainFalloff;
+
+    Vector<Transform3D> GlobalTransforms;
+    GlobalTransforms.resize(PointCount);
+
+    float min_x = 1e9, max_x = -1e9, min_z = 1e9, max_z = -1e9;
+
+    for (int i = 0; i < PointCount; ++i) {
+        float offset = MIN(i * SamplingStep, TotalLength);
+        Transform3D local_t = CurrentCurve->sample_baked_with_rotation(offset, true, true);
+        GlobalTransforms.write[i] = NodeTransform * local_t;
+
+        Vector3 p = GlobalTransforms[i].origin;
+        if (p.x < min_x) min_x = p.x;
+        if (p.x > max_x) max_x = p.x;
+        if (p.z < min_z) min_z = p.z;
+        if (p.z > max_z) max_z = p.z;
+    }
+
+    min_x -= SearchRadius; max_x += SearchRadius;
+    min_z -= SearchRadius; max_z += SearchRadius;
+
+    bool modified = false;
+
+    // Approche Pixel-Centric : on itère sur la grille et on trouve le meilleur segment
+    for (float x = Math::floor(min_x); x <= Math::ceil(max_x); x += 1.0f) {
+        for (float z = Math::floor(min_z); z <= Math::ceil(max_z); z += 1.0f) {
+            Vector3 PixelPos(x, 0, z);
+            Vector2 P(x, z);
+
+            float MinDistSq = 1e9;
+            int BestSegment = -1;
+            float BestT = 0.0f;
+
+            // Trouver LE segment de route le plus proche pour ce pixel
+            for (int i = 0; i < PointCount - 1; ++i) {
+                Vector2 A(GlobalTransforms[i].origin.x, GlobalTransforms[i].origin.z);
+                Vector2 B(GlobalTransforms[i+1].origin.x, GlobalTransforms[i+1].origin.z);
+                Vector2 AB = B - A;
+                float length_sq = AB.length_squared();
+
+                float t = length_sq > 0.0001f ? (P - A).dot(AB) / length_sq : 0.0f;
+                t = CLAMP(t, 0.0f, 1.0f);
+
+                Vector2 ClosestPoint2D = A + AB * t;
+                float DistSq = P.distance_squared_to(ClosestPoint2D);
+
+                if (DistSq < MinDistSq) {
+                    MinDistSq = DistSq;
+                    BestSegment = i;
+                    BestT = t;
+                }
+            }
+
+            if (MinDistSq <= SearchRadius * SearchRadius && BestSegment != -1) {
+                float Dist = Math::sqrt(MinDistSq);
+
+                const Transform3D& T1 = GlobalTransforms[BestSegment];
+                const Transform3D& T2 = GlobalTransforms[BestSegment + 1];
+
+                Vector3 Origin = T1.origin.lerp(T2.origin, BestT);
+                Vector3 Up = T1.basis.get_column(1).lerp(T2.basis.get_column(1), BestT).normalized();
+
+                float TargetHeight = Origin.y;
+
+                // Équation mathématique stricte d'un plan (N.P = 0)
+                // Permet de trouver la hauteur Y exacte d'une surface inclinée aux coordonnées X et Z
+                if (Math::abs(Up.y) > 0.0001f) {
+                    TargetHeight = Origin.y - (Up.x * (x - Origin.x) + Up.z * (z - Origin.z)) / Up.y;
+                }
+                TargetHeight -= TerrainDepthOffset;
+
+                float CurrentHeight = 0.0f;
+                if (storage->has_method("get_height")) {
+                    CurrentHeight = storage->call("get_height", PixelPos);
+                } else continue;
+
+                float FinalHeight = CurrentHeight;
+
+                if (Dist <= FlatZone) {
+                    FinalHeight = TargetHeight;
+                } else {
+                    float falloff_t = (Dist - FlatZone) / TerrainFalloff;
+                    float smooth_t = falloff_t * falloff_t * (3.0f - 2.0f * falloff_t);
+                    FinalHeight = Math::lerp(TargetHeight, CurrentHeight, smooth_t);
+                }
+
+                if (Math::abs(FinalHeight - CurrentHeight) > 0.01f) {
+                    if (storage->has_method("set_height")) {
+                        storage->call("set_height", PixelPos, FinalHeight);
+                    } else if (storage->has_method("set_pixel")) {
+                        storage->call("set_pixel", 0, PixelPos, Color(FinalHeight, 0, 0, 1));
+                    }
+                    modified = true;
+                }
+            }
+        }
+    }
+
+    if (modified) {
+        if (storage->has_method("update_maps")) {
+            storage->call("update_maps", 0);
+        } else if (storage->has_method("force_update_maps")) {
+            storage->call("force_update_maps", 0);
+        }
+    }
 }

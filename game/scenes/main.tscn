@@ -1,7 +1,9 @@
 [gd_scene format=3 uid="uid://bfj02d6t245ji"]
 
 [ext_resource type="Material" uid="uid://dg0qmx5ch8fxn" path="res://assets/materials/asphalte01.tres" id="1_sugp2"]
+[ext_resource type="Texture2D" uid="uid://dqvmyiox0gjey" path="res://assets/textures/grass01/Poliigon_GrassPatchyGround_4585_BaseColor.jpg" id="1_tbgi4"]
 [ext_resource type="Material" uid="uid://bpgcqe240tn7i" path="res://assets/materials/markings01.tres" id="2_sugp2"]
+[ext_resource type="Texture2D" uid="uid://cbpr12xbajyt0" path="res://assets/textures/grass01/Poliigon_GrassPatchyGround_4585_Normal.png" id="2_tefeu"]
 [ext_resource type="PackedScene" uid="uid://db7kvq7nmbsps" path="res://scenes/TruckVehicle.tscn" id="3_sugp2"]
 
 [sub_resource type="Environment" id="Environment_o5qli"]
@@ -11,6 +13,27 @@ ssil_enabled = true
 sdfgi_enabled = true
 glow_enabled = true
 
+[sub_resource type="Gradient" id="Gradient_o6xl0"]
+offsets = PackedFloat32Array(0.2, 1)
+colors = PackedColorArray(1, 1, 1, 1, 0, 0, 0, 1)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_tipki"]
+noise_type = 2
+frequency = 0.03
+cellular_jitter = 3.0
+cellular_return_type = 0
+domain_warp_enabled = true
+domain_warp_type = 1
+domain_warp_amplitude = 50.0
+domain_warp_fractal_type = 2
+domain_warp_fractal_lacunarity = 1.5
+domain_warp_fractal_gain = 1.0
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_85g3d"]
+noise = SubResource("FastNoiseLite_tipki")
+color_ramp = SubResource("Gradient_o6xl0")
+seamless = true
+
 [sub_resource type="Terrain3DMaterial" id="Terrain3DMaterial_a8y0u"]
 _shader_parameters = {
 &"bias_distance": null,
@@ -18,13 +41,31 @@ _shader_parameters = {
 &"depth_blur": null,
 &"flat_terrain_normals": null,
 &"ground_level": null,
+&"macro_variation1": null,
+&"macro_variation2": null,
+&"macro_variation_slope": null,
 &"mipmap_bias": null,
+&"noise1_angle": null,
+&"noise1_offset": null,
+&"noise1_scale": null,
+&"noise2_scale": null,
+&"noise_texture": SubResource("NoiseTexture2D_85g3d"),
 &"region_blend": null,
 &"shader_uniforms": null,
 &"shader_uniforms::general": null,
-&"shader_uniforms::mipmaps": null
+&"shader_uniforms::macro_variation": null,
+&"shader_uniforms::mipmaps": null,
+&"shader_uniforms::world_background_noise": null,
+&"world_noise_fragment_normals": null,
+&"world_noise_height": null,
+&"world_noise_lod_distance": null,
+&"world_noise_max_octaves": null,
+&"world_noise_min_octaves": null,
+&"world_noise_offset": null,
+&"world_noise_scale": null
 }
-show_checkered = true
+world_background = 2
+macro_variation_enabled = true
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_jkv2x"]
 transparency = 4
@@ -46,14 +87,20 @@ last_lod = 0
 last_shadow_lod = 0
 lod0_range = 128.0
 
+[sub_resource type="Terrain3DTextureAsset" id="Terrain3DTextureAsset_choun"]
+name = "grass"
+albedo_texture = ExtResource("1_tbgi4")
+normal_texture = ExtResource("2_tefeu")
+
 [sub_resource type="Terrain3DAssets" id="Terrain3DAssets_muem4"]
 mesh_list = Array[Terrain3DMeshAsset]([SubResource("Terrain3DMeshAsset_jbj1t")])
+texture_list = Array[Terrain3DTextureAsset]([SubResource("Terrain3DTextureAsset_choun")])
 
 [sub_resource type="Curve3D" id="Curve3D_sugp2"]
 closed = true
 bake_interval = 0.5
 _data = {
-"points": PackedVector3Array(0, 0, 0, 6.30201, 0, 0.34683004, -4.579, 0, 2.392, -5.8063865, 0, 2.4741657, 9.44091, 0, -4.0228763, 14.518, 0, 3.443, -4.189784, 0, 9.368032, 5.708934, 0, -12.764733, 38.736, 0, -16.065, 6.3017435, 0, 12.482723, -10.719252, 0, -21.233084, 42.133, 0, -58.302, 23.612833, 0, 2.860132, -14.724243, 0, -1.7834911, -8.489, 0, -109.61, 11.219471, 0, -9.700911, -14.660564, 0, 12.67625, -16.804, 0, -65.44081, 15.954061, 0, -11.00397, -6.7970624, 0, 4.688128, -74.163, 0, -52.825, -1.011121, 0, -8.194891, 0, 0, 0, -71.099, 0, -27.992),
+"points": PackedVector3Array(-20.554008, -1.1047595, -3.998941, 14.974935, 0.80488926, 2.913489, -14.862108, -4.490965, 1.2432814, -13.424553, -0.8596665, 7.2406707, 14.658003, 0.9386529, -7.905945, 30.52794, 3.4228911, -3.2540774, -1.2220838, 0.6898683, 16.621452, 0.9602221, -0.54204696, -13.0598955, 62.453144, -4.7683716e-07, -42.293655, 9.064913, -8.0743646e-08, 9.465942, -13.816266, 1.2306525e-07, -14.427493, 42.133, 0, -76.418015, 18.382717, 0.66792464, -7.7891765, -13.6425295, -0.49569285, 5.7806506, -8.489, 0, -109.61, 10.325239, 0.07747112, -10.637844, -13.491857, -0.10123051, 13.900333, -16.8716, -1.6696067, -65.506386, 11.173197, -0.37232968, -15.820263, -4.762506, 0.15870322, 6.743289, -74.163, 0, -52.825, -4.7021503, 0.32986405, -6.7793493, 11.940994, -0.8376816, 17.21599, -71.099, 0, -27.992),
 "tilts": PackedFloat32Array(0, 0, 0, 0, 0, 0, 0, 0)
 }
 point_count = 8
@@ -70,16 +117,14 @@ transform = Transform3D(0.820062, 0.14273489, -0.55418867, 0, 0.96839625, 0.2494
 data_directory = "res://terrainData"
 material = SubResource("Terrain3DMaterial_a8y0u")
 assets = SubResource("Terrain3DAssets_muem4")
-collision_mode = 4
 collision_layer = 2
 collision_mask = 0
 displacement_sharpness = 0.5
-show_checkered = true
 top_level = true
 metadata/_edit_lock_ = true
 
 [node name="TruckVehicle" parent="." unique_id=199068106 instance=ExtResource("3_sugp2")]
-transform = Transform3D(0.45023876, 0, 0.8929082, 0, 1, 0, -0.8929082, 0, 0.45023876, -15.0727005, 5.59771, -4.4412127)
+transform = Transform3D(-0.13756558, 0, -0.9904927, 0, 1, 0, 0.9904927, 0, -0.13756558, -14.495585, -0.26713037, -0.5448483)
 
 [node name="ProceduralRoad" type="ProceduralRoad" parent="." unique_id=1706347445]
 road_material = ExtResource("1_sugp2")
@@ -87,7 +132,6 @@ markings_material = ExtResource("2_sugp2")
 edge_line_type = 1
 center_line_type = 0
 dash_gap = 3.5
-snap_to_terrain = true
-terrain_collision_mask = 2
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 10.901659, 0)
+terrain_path = NodePath("../Terrain3D")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.890584, 0)
 curve = SubResource("Curve3D_sugp2")
