@@ -62,7 +62,6 @@ namespace godot {
         void OnCurveChanged();
         Vector<ProfileVertex> BuildCrossSectionProfile() const;
         void AutoSmoothCurve();
-        float GetTotalRoadWidth() const;
 
         void UpdateChunkCount(int p_target_count);
         void GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p_end_idx, const PackedVector3Array& p_points, const PackedVector3Array& p_up_vectors, const PackedVector3Array& p_forwards, float p_start_distance, const Vector<ProfileVertex>& p_profile, const Vector<RibbonDef>& p_ribbons);
@@ -78,6 +77,9 @@ namespace godot {
         float TerrainFalloff = 5.0f;
         float TerrainDepthOffset = 0.1f;
         void BakeTerrain();
+
+        NodePath ConnectedStart;
+        NodePath ConnectedEnd;
 
     protected:
         static void _bind_methods();
@@ -133,7 +135,6 @@ namespace godot {
         float GetDashGap() const;
         void SetChunkLength(float p_length);
         float GetChunkLength() const;
-
         void SetTerrainPath(NodePath p_path);
         NodePath GetTerrainPath() const;
         void SetTerrainFalloff(float p_falloff);
@@ -142,6 +143,12 @@ namespace godot {
         bool GetTriggerBakeTerrain() const;
         void SetTerrainDepthOffset(float p_offset);
         float GetTerrainDepthOffset() const;
+        void SetConnectedStart(NodePath p_path);
+        NodePath GetConnectedStart() const;
+        void SetConnectedEnd(NodePath p_path);
+        NodePath GetConnectedEnd() const;
+        float GetTotalRoadWidth() const;
+
     };
 }
 #endif

@@ -1,5 +1,6 @@
 #include "register_types.h"
 #include "ProceduralRoad.h"
+#include "ProceduralIntersection.h"
 
 #include <gdextension_interface.h>
 #include <godot_cpp/core/defs.hpp>
@@ -12,6 +13,7 @@ void initialize_roadtool_module(ModuleInitializationLevel p_level) {
         return;
     }
     ClassDB::register_class<ProceduralRoad>();
+    ClassDB::register_class<ProceduralIntersection>();
 }
 
 void uninitialize_roadtool_module(ModuleInitializationLevel p_level) {

@@ -8,6 +8,7 @@
 #include <godot_cpp/classes/surface_tool.hpp>
 #include <godot_cpp/classes/world3d.hpp>
 #include <godot_cpp/core/class_db.hpp>
+#include "ProceduralIntersection.h"
 
 using namespace godot;
 
@@ -83,6 +84,11 @@ void ProceduralRoad::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_terrain_depth_offset", "offset"), &ProceduralRoad::SetTerrainDepthOffset);
     ClassDB::bind_method(D_METHOD("get_terrain_depth_offset"), &ProceduralRoad::GetTerrainDepthOffset);
 
+    ClassDB::bind_method(D_METHOD("set_connected_start", "path"), &ProceduralRoad::SetConnectedStart);
+    ClassDB::bind_method(D_METHOD("get_connected_start"), &ProceduralRoad::GetConnectedStart);
+    ClassDB::bind_method(D_METHOD("set_connected_end", "path"), &ProceduralRoad::SetConnectedEnd);
+    ClassDB::bind_method(D_METHOD("get_connected_end"), &ProceduralRoad::GetConnectedEnd);
+
     ADD_GROUP("Road Geometry", "");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "road_thickness"), "set_road_thickness", "get_road_thickness");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "profile_resolution"), "set_profile_resolution", "get_profile_resolution");
@@ -125,6 +131,11 @@ void ProceduralRoad::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "terrain_falloff"), "set_terrain_falloff", "get_terrain_falloff");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "terrain_depth_offset"), "set_terrain_depth_offset", "get_terrain_depth_offset");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "trigger_bake_terrain"), "set_trigger_bake_terrain", "get_trigger_bake_terrain");
+
+    ADD_GROUP("Connections (Graph)", "");
+    // PROPERTY_HINT_NODE_PATH_VALID_TYPES force l'inspecteur Godot à n'accepter QUE les ProceduralIntersection !
+    ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "connected_start", PROPERTY_HINT_NODE_PATH_VALID_TYPES, "ProceduralIntersection"), "set_connected_start", "get_connected_start");
+    ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "connected_end", PROPERTY_HINT_NODE_PATH_VALID_TYPES, "ProceduralIntersection"), "set_connected_end", "get_connected_end");
 }
 
 ProceduralRoad::ProceduralRoad() {
@@ -357,6 +368,18 @@ bool ProceduralRoad::GetTriggerBakeTerrain() const { return false; }
 void ProceduralRoad::SetTerrainDepthOffset(float p_offset) { TerrainDepthOffset = p_offset; }
 float ProceduralRoad::GetTerrainDepthOffset() const { return TerrainDepthOffset; }
 
+void ProceduralRoad::SetConnectedStart(NodePath p_path) {
+    ConnectedStart = p_path;
+    RebuildRoad(); // On met à jour si la connexion change
+}
+NodePath ProceduralRoad::GetConnectedStart() const { return ConnectedStart; }
+
+void ProceduralRoad::SetConnectedEnd(NodePath p_path) {
+    ConnectedEnd = p_path;
+    RebuildRoad();
+}
+NodePath ProceduralRoad::GetConnectedEnd() const { return ConnectedEnd; }
+
 void ProceduralRoad::AutoSmoothCurve() {
     Ref<Curve3D> CurrentCurve = get_curve();
     if (CurrentCurve.is_null() || CurrentCurve->get_point_count() < 2) {
@@ -472,6 +495,52 @@ void ProceduralRoad::RebuildRoad() {
         return;
     }
 
+    // ====================================================================
+    // --- LE CERVEAU : SYSTÈME D'AIMANTATION (GRAPH SNAPPING) ---
+    // ====================================================================
+    bool curve_modified = false;
+    CurrentCurve->set_block_signals(true);
+
+    Transform3D road_global_trans = get_global_transform();
+    Transform3D road_global_inv = road_global_trans.affine_inverse();
+    const float TangentForce = 10.0f;
+
+    if (!ConnectedStart.is_empty()) {
+        ProceduralIntersection* inter_start = Object::cast_to<ProceduralIntersection>(get_node_or_null(ConnectedStart));
+        if (inter_start) {
+            Vector3 ref_global_pos = road_global_trans.xform(CurrentCurve->get_point_position(1));
+            Transform3D target_trans = inter_start->GetConnectionTransform(ref_global_pos);
+            Transform3D local_target = road_global_inv * target_trans;
+
+            CurrentCurve->set_point_position(0, local_target.origin);
+            // La tangente pointe vers l'extérieur de l'intersection (direction de la route)
+            CurrentCurve->set_point_out(0, -local_target.basis.get_column(2).normalized() * TangentForce);
+            CurrentCurve->set_point_in(0, Vector3());
+            CurrentCurve->set_point_tilt(0, 0.0f);
+            curve_modified = true;
+        }
+    }
+
+    if (!ConnectedEnd.is_empty()) {
+        int last_idx = CurrentCurve->get_point_count() - 1;
+        ProceduralIntersection* inter_end = Object::cast_to<ProceduralIntersection>(get_node_or_null(ConnectedEnd));
+        if (inter_end) {
+            Vector3 ref_global_pos = road_global_trans.xform(CurrentCurve->get_point_position(last_idx - 1));
+            Transform3D target_trans = inter_end->GetConnectionTransform(ref_global_pos);
+            Transform3D local_target = road_global_inv * target_trans;
+
+            CurrentCurve->set_point_position(last_idx, local_target.origin);
+            // La tangente pointe vers l'extérieur de l'intersection (vers le point précédent de la route)
+            CurrentCurve->set_point_in(last_idx, -local_target.basis.get_column(2).normalized() * TangentForce);
+            CurrentCurve->set_point_out(last_idx, Vector3());
+            CurrentCurve->set_point_tilt(last_idx, 0.0f);
+            curve_modified = true;
+        }
+    }
+
+    CurrentCurve->set_block_signals(false);
+    // ====================================================================
+
     const float TotalWidth = GetTotalRoadWidth();
     const float StartX = -TotalWidth * 0.5f + ShoulderWidth;
     Vector<RibbonDef> Ribbons;
@@ -582,6 +651,16 @@ void ProceduralRoad::RebuildRoad() {
             c, Ranges[c].StartIdx, Ranges[c].EndIdx,
             Points, UpVectors, Forwards, Ranges[c].StartDistance, Profile, Ribbons
         );
+    }
+
+    // On notifie les intersections de reconstruire leur géométrie centrale
+    if (!ConnectedStart.is_empty() && is_inside_tree()) {
+        ProceduralIntersection* inter = Object::cast_to<ProceduralIntersection>(get_node_or_null(ConnectedStart));
+        if (inter) inter->RebuildIntersection();
+    }
+    if (!ConnectedEnd.is_empty() && is_inside_tree()) {
+        ProceduralIntersection* inter = Object::cast_to<ProceduralIntersection>(get_node_or_null(ConnectedEnd));
+        if (inter) inter->RebuildIntersection();
     }
 }
 
