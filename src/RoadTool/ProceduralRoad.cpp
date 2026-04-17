@@ -2,8 +2,11 @@
 #include <godot_cpp/classes/array_mesh.hpp>
 #include <godot_cpp/classes/concave_polygon_shape3d.hpp>
 #include <godot_cpp/classes/curve3d.hpp>
+#include <godot_cpp/classes/physics_direct_space_state3d.hpp>
+#include <godot_cpp/classes/physics_ray_query_parameters3d.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/surface_tool.hpp>
+#include <godot_cpp/classes/world3d.hpp>
 #include <godot_cpp/core/class_db.hpp>
 
 using namespace godot;
@@ -72,11 +75,19 @@ void ProceduralRoad::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_chunk_length", "length"), &ProceduralRoad::SetChunkLength);
     ClassDB::bind_method(D_METHOD("get_chunk_length"), &ProceduralRoad::GetChunkLength);
 
+    ClassDB::bind_method(D_METHOD("set_snap_to_terrain", "snap"), &ProceduralRoad::SetSnapToTerrain);
+    ClassDB::bind_method(D_METHOD("get_snap_to_terrain"), &ProceduralRoad::GetSnapToTerrain);
+    ClassDB::bind_method(D_METHOD("set_terrain_collision_mask", "mask"), &ProceduralRoad::SetTerrainCollisionMask);
+    ClassDB::bind_method(D_METHOD("get_terrain_collision_mask"), &ProceduralRoad::GetTerrainCollisionMask);
+    ClassDB::bind_method(D_METHOD("set_terrain_offset", "offset"), &ProceduralRoad::SetTerrainOffset);
+    ClassDB::bind_method(D_METHOD("get_terrain_offset"), &ProceduralRoad::GetTerrainOffset);
+
     ADD_GROUP("Road Geometry", "");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "road_thickness"), "set_road_thickness", "get_road_thickness");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "profile_resolution"), "set_profile_resolution", "get_profile_resolution");
     ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "uv_scale"), "set_uv_scale", "get_uv_scale");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "line_offset"), "set_line_offset", "get_line_offset");
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "chunk_length"), "set_chunk_length", "get_chunk_length");
 
     ADD_GROUP("Road Architecture", "");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "lane_count"), "set_lane_count", "get_lane_count");
@@ -108,7 +119,10 @@ void ProceduralRoad::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "dash_length"), "set_dash_length", "get_dash_length");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "dash_gap"), "set_dash_gap", "get_dash_gap");
 
-    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "chunk_length"), "set_chunk_length", "get_chunk_length");
+    ADD_GROUP("Terrain Snapping", "");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "snap_to_terrain"), "set_snap_to_terrain", "get_snap_to_terrain");
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "terrain_collision_mask", PROPERTY_HINT_LAYERS_3D_PHYSICS), "set_terrain_collision_mask", "get_terrain_collision_mask");
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "terrain_offset"), "set_terrain_offset", "get_terrain_offset");
 }
 
 ProceduralRoad::ProceduralRoad() {
@@ -326,6 +340,39 @@ float ProceduralRoad::GetDashLength() const { return DashLength; }
 void ProceduralRoad::SetDashGap(float p_gap) { DashGap = p_gap; RebuildRoad(); }
 float ProceduralRoad::GetDashGap() const { return DashGap; }
 
+void ProceduralRoad::SetSnapToTerrain(bool p_snap)
+{
+    SnapToTerrain = p_snap;
+    RebuildRoad();
+}
+
+bool ProceduralRoad::GetSnapToTerrain() const
+{
+    return SnapToTerrain;
+}
+
+void ProceduralRoad::SetTerrainCollisionMask(uint32_t p_mask)
+{
+    TerrainCollisionMask = p_mask;
+    RebuildRoad();
+}
+
+uint32_t ProceduralRoad::GetTerrainCollisionMask() const
+{
+    return TerrainCollisionMask;
+}
+
+void ProceduralRoad::SetTerrainOffset(float p_offset)
+{
+    TerrainOffset = p_offset;
+    RebuildRoad();
+}
+
+float ProceduralRoad::GetTerrainOffset() const
+{
+    return TerrainOffset;
+}
+
 void ProceduralRoad::AutoSmoothCurve() {
     Ref<Curve3D> Curve = get_curve();
     if (Curve.is_null() || Curve->get_point_count() < 3) {
@@ -434,12 +481,57 @@ void ProceduralRoad::RebuildRoad() {
 
     PackedVector3Array Points = CurrentCurve->get_baked_points();
     PackedVector3Array UpVectors = CurrentCurve->get_baked_up_vectors();
-
-    // La variable manquante est ici :
-    Vector<ProfileVertex> Profile = BuildCrossSectionProfile();
-
     const int PointCount = Points.size();
 
+    // ====================================================================
+    // --- NOUVEAU : PROJECTION SUR LE TERRAIN (RAYCAST) ---
+    // ====================================================================
+    if (SnapToTerrain && is_inside_tree()) {
+        PhysicsDirectSpaceState3D* SpaceState = get_world_3d()->get_direct_space_state();
+
+        if (SpaceState) {
+            // Création de la liste d'exclusion pour ne pas s'auto-détecter
+            TypedArray<RID> ExcludeArray;
+            for (int c = 0; c < Chunks.size(); ++c) {
+                if (Chunks[c].StaticBody && Chunks[c].StaticBody->is_inside_tree()) {
+                    ExcludeArray.push_back(Chunks[c].StaticBody->get_rid());
+                }
+            }
+
+            // --- LE FIX EST ICI : Les Matrices de Transformation ---
+            Transform3D NodeTransform = get_global_transform();
+            Transform3D InverseTransform = NodeTransform.affine_inverse();
+
+            for (int i = 0; i < PointCount; ++i) {
+                // 1. Convertir le point local de la courbe en position globale absolue
+                Vector3 GlobalPoint = NodeTransform.xform(Points[i]);
+
+                // 2. Tirer le rayon dans l'espace global
+                Vector3 RayOrigin = GlobalPoint;
+                RayOrigin.y += 1000.0f;
+                Vector3 RayEnd = GlobalPoint;
+                RayEnd.y -= 1000.0f;
+
+                Ref<PhysicsRayQueryParameters3D> Query = PhysicsRayQueryParameters3D::create(RayOrigin, RayEnd, TerrainCollisionMask);
+                Query->set_exclude(ExcludeArray);
+
+                Dictionary Hit = SpaceState->intersect_ray(Query);
+
+                if (!Hit.is_empty()) {
+                    Vector3 GlobalHitPos = Hit["position"];
+
+                    // 3. Reconvertir le point d'impact global en coordonnées locales
+                    Vector3 LocalHitPos = InverseTransform.xform(GlobalHitPos);
+
+                    // 4. Appliquer la hauteur locale snappée
+                    Points.set(i, Vector3(Points[i].x, LocalHitPos.y + TerrainOffset, Points[i].z));
+                }
+            }
+        }
+    }
+    // ====================================================================
+
+    Vector<ProfileVertex> Profile = BuildCrossSectionProfile();
     PackedVector3Array Forwards;
     Forwards.resize(PointCount);
 
@@ -503,7 +595,6 @@ void ProceduralRoad::RebuildRoad() {
 
     UpdateChunkCount(Ranges.size());
 
-    // TODO: Paralléliser cette boucle avec un WorkerThreadPool quand le système sera stabilisé
     for (int c = 0; c < Ranges.size(); ++c) {
         GenerateChunkMesh(c, Ranges[c].StartIdx, Ranges[c].EndIdx, Points, UpVectors, Forwards, Ranges[c].StartDistance, Profile, Ribbons);
     }
@@ -522,32 +613,21 @@ void ProceduralRoad::UpdateChunkCount(int p_target_count) {
         RoadChunk Chunk = Chunks[Chunks.size() - 1];
         if (Chunk.MeshInst) Chunk.MeshInst->queue_free();
         if (Chunk.StaticBody) Chunk.StaticBody->queue_free();
-        // CollisionShape est détruite avec le StaticBody
         Chunks.remove_at(Chunks.size() - 1);
     }
 
-    // 2. Créer les chunks manquants
-    Node* ValidOwner = get_owner();
-    if (!ValidOwner && is_inside_tree()) {
-        ValidOwner = get_tree()->get_edited_scene_root();
-    }
-
+    // 2. Créer les chunks manquants (SANS set_owner)
     while (Chunks.size() < p_target_count) {
         RoadChunk NewChunk;
 
         NewChunk.MeshInst = memnew(MeshInstance3D);
         add_child(NewChunk.MeshInst);
-        if (ValidOwner) NewChunk.MeshInst->set_owner(ValidOwner);
 
         NewChunk.StaticBody = memnew(StaticBody3D);
         add_child(NewChunk.StaticBody);
-        if (ValidOwner) NewChunk.StaticBody->set_owner(ValidOwner);
 
         NewChunk.CollisionShape = memnew(CollisionShape3D);
         NewChunk.StaticBody->add_child(NewChunk.CollisionShape);
-        if (ValidOwner) NewChunk.CollisionShape->set_owner(ValidOwner);
-
-        // On cache le rendu visuel du noeud (le filaire bleu) sans désactiver la physique
         NewChunk.CollisionShape->set_visible(false);
 
         Chunks.push_back(NewChunk);

@@ -67,6 +67,10 @@ namespace godot {
         void UpdateChunkCount(int p_target_count);
         void GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p_end_idx, const PackedVector3Array& p_points, const PackedVector3Array& p_up_vectors, const PackedVector3Array& p_forwards, float p_start_distance, const Vector<ProfileVertex>& p_profile, const Vector<RibbonDef>& p_ribbons);
 
+        bool SnapToTerrain = false;
+        uint32_t TerrainCollisionMask = 1; // Le layer physique de ton terrain
+        float TerrainOffset = 0.1f; // Surélever un peu pour éviter que l'asphalte z-fight avec l'herbe
+
         // 0 = Continue, 1 = Pointillée, 2 = Double Continue
         int EdgeLineType = 0;   // Bord
         int LaneLineType = 1;   // Entre les voies
@@ -130,6 +134,12 @@ namespace godot {
         float GetDashGap() const;
         void SetChunkLength(float p_length);
         float GetChunkLength() const;
+        void SetSnapToTerrain(bool p_snap);
+        bool GetSnapToTerrain() const;
+        void SetTerrainCollisionMask(uint32_t p_mask);
+        uint32_t GetTerrainCollisionMask() const;
+        void SetTerrainOffset(float p_offset);
+        float GetTerrainOffset() const;
     };
 }
 #endif
