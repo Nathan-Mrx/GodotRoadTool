@@ -58,7 +58,6 @@ namespace godot {
         bool UseCollision = true;
         Ref<Curve3D> LastCurve;
 
-        void RebuildRoad();
         void OnCurveChanged();
         Vector<ProfileVertex> BuildCrossSectionProfile() const;
         void AutoSmoothCurve();
@@ -148,6 +147,10 @@ namespace godot {
         void SetConnectedEnd(NodePath p_path);
         NodePath GetConnectedEnd() const;
         float GetTotalRoadWidth() const;
+
+
+
+        void RebuildRoad();
 
     };
 }

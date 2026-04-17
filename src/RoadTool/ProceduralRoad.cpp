@@ -662,6 +662,8 @@ void ProceduralRoad::RebuildRoad() {
         ProceduralIntersection* inter = Object::cast_to<ProceduralIntersection>(get_node_or_null(ConnectedEnd));
         if (inter) inter->RebuildIntersection();
     }
+
+    update_gizmos(); // Force Godot à redessiner notre wireframe
 }
 
 void ProceduralRoad::SetChunkLength(float p_length) {
