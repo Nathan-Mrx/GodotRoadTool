@@ -165,7 +165,7 @@ point_count = 5
 [sub_resource type="Curve3D" id="Curve3D_tipki"]
 bake_interval = 0.5
 _data = {
-"points": PackedVector3Array(0, 0, 0, -4.4483, -0.09521264, -2.2811317, -106.00498, 1.3254337, 115.14192, 5.4021835, 0.07423261, 8.0506, -7.643345, -0.10502891, -11.390489, -128.35071, 0.672487, 96.06773, 4.284985, 0.28636318, 13.02812, 0, 0, 0, -141.33551, 0.5987496, 56.588585),
+"points": PackedVector3Array(0, 0, 0, -4.4483, -0.09521264, -2.2811317, -106.00498, 1.3247088, 115.14192, 5.4021835, 0.07423261, 8.0506, -7.643345, -0.10502891, -11.390489, -128.35071, 0.69244766, 96.06773, 4.284985, 0.28636318, 13.02812, 0, 0, 0, -141.33551, 0.5987496, 56.588585),
 "tilts": PackedFloat32Array(0, 0, 0)
 }
 point_count = 3
@@ -284,9 +284,10 @@ main_road_path = NodePath("../ProceduralRoad2")
 exit_road_path = NodePath("../ProceduralRoad4")
 splitting_offset = 303.3955
 attenuator_scene = ExtResource("7_o6xl0")
-transition_length = 75.0
-solid_line_length = 20.0
-transform = Transform3D(-0.8955629, 0, 0.444935, 0, 1, 0, -0.444935, 0, -0.8955629, -147.48393, 1.4758931, 93.41987)
+transition_length = 120.0
+solid_line_length = 35.0
+taper_length = 30.0
+transform = Transform3D(-0.8955629, 0, 0.444935, 0, 1, 0, -0.444935, 0, -0.8955629, -147.48418, 1.4908904, 93.41973)
 
 [node name="ProceduralRoad4" type="ProceduralRoad" parent="." unique_id=336264100]
 lane_count = 1
@@ -294,7 +295,7 @@ road_material = ExtResource("1_sugp2")
 markings_material = ExtResource("2_sugp2")
 terrain_path = NodePath("../Terrain3D")
 terrain_falloff = 3.0
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -41.47895, 0.17899907, -21.722054)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -41.479195, 0.16618156, -21.72219)
 curve = SubResource("Curve3D_tipki")
 
 [node name="ProceduralIntersection2" type="ProceduralIntersection" parent="." unique_id=144859404]

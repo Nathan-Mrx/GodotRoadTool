@@ -446,9 +446,8 @@ void ProceduralRoad::SnapPointsToTerrain() {
     }
 }
 
-void ProceduralRoad::RegisterWidthModifier(const String& p_id, float p_start, float p_end, float p_width, int p_side, int p_type, float p_solid_ratio) {
-    // On sauvegarde le ratio transmis par la bifurcation
-    WidthModifiers[p_id] = {p_start, p_end, p_width, p_side, p_type, p_solid_ratio};
+void ProceduralRoad::RegisterWidthModifier(const String& p_id, float p_start, float p_end, float p_width, int p_side, int p_type, float p_solid_ratio, float p_taper_length) {
+    WidthModifiers[p_id] = {p_start, p_end, p_width, p_side, p_type, p_solid_ratio, p_taper_length};
     RebuildRoad();
 }
 
@@ -466,19 +465,34 @@ float ProceduralRoad::GetExtraWidthAt(float p_offset, int p_side) const {
         if (mod.Side != p_side) continue;
         if (p_offset < mod.StartOffset) continue;
 
+        // Sécurité : le biseau ne peut pas être plus grand que la zone totale
+        float actual_taper = MIN(mod.TaperLength, mod.EndOffset - mod.StartOffset);
+        if (actual_taper <= 0.0f) actual_taper = 0.001f;
+
         if (mod.Type == 0) { // Sortie
-            // COUPURE NETTE : Plus aucun "taper_dist". Si on dépasse EndOffset, ça drop à 0 direct.
             if (p_offset <= mod.EndOffset) {
-                float t = (p_offset - mod.StartOffset) / (mod.EndOffset - mod.StartOffset);
-                float smooth_t = t * t * (3.0f - 2.0f * t);
-                total += smooth_t * mod.WidthDelta;
+                if (p_offset < mod.StartOffset + actual_taper) {
+                    // Phase d'élargissement (Biseau)
+                    float t = (p_offset - mod.StartOffset) / actual_taper;
+                    float smooth_t = t * t * (3.0f - 2.0f * t);
+                    total += smooth_t * mod.WidthDelta;
+                } else {
+                    // Phase parallèle (Pleine largeur)
+                    total += mod.WidthDelta;
+                }
             }
         } else { // Entrée
             if (p_offset > mod.EndOffset) continue;
             if (p_offset >= mod.StartOffset) {
-                float t = (p_offset - mod.StartOffset) / (mod.EndOffset - mod.StartOffset);
-                float smooth_t = t * t * (3.0f - 2.0f * t);
-                total += (1.0f - smooth_t) * mod.WidthDelta;
+                if (p_offset > mod.EndOffset - actual_taper) {
+                    // Phase de rétrécissement (Biseau)
+                    float t = (p_offset - (mod.EndOffset - actual_taper)) / actual_taper;
+                    float smooth_t = t * t * (3.0f - 2.0f * t);
+                    total += (1.0f - smooth_t) * mod.WidthDelta;
+                } else {
+                    // Phase parallèle
+                    total += mod.WidthDelta;
+                }
             }
         }
     }

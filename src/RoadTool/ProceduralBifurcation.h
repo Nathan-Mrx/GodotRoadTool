@@ -33,6 +33,7 @@ namespace godot {
         int BifurcationType = 0; // 0 = Sortie, 1 = Entrée
         float TransitionLength = 40.0f;
         float SolidLineLength = 15.0f;
+        float TaperLength = 15.0f;
 
     protected:
         static void _bind_methods();
@@ -60,6 +61,8 @@ namespace godot {
         float GetTransitionLength() const;
         void SetSolidLineLength(float p_length);
         float GetSolidLineLength() const;
+        void SetTaperLength(float p_length);
+        float GetTaperLength() const;
 
         void RebuildBifurcation();
     };

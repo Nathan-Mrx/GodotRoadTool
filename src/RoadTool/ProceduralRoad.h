@@ -22,9 +22,10 @@ namespace godot {
         float StartOffset = 0.0f;
         float EndOffset = 0.0f;
         float WidthDelta = 0.0f;
-        int Side = 1; // 1 = Droit, -1 = Gauche
-        int Type = 0; // 0 = Sortie (0 -> Width), 1 = Entrée (Width -> 0)
+        int Side = 1;
+        int Type = 0;
         float SolidLineRatio = 0.4f;
+        float TaperLength = 15.0f;
     };
 
     struct RibbonDef {
@@ -165,7 +166,7 @@ namespace godot {
         void SetTriggerSnapToTerrain(bool p_trigger);
         bool GetTriggerSnapToTerrain() const;
         void SnapPointsToTerrain();
-        void RegisterWidthModifier(const String& p_id, float p_start, float p_end, float p_width, int p_side, int p_type, float p_solid_ratio = 0.4f);
+        void RegisterWidthModifier(const String& p_id, float p_start, float p_end, float p_width, int p_side, int p_type, float p_solid_ratio = 0.4f, float p_taper_length = 15.0f);
         void UnregisterWidthModifier(const String& p_id);
         float GetExtraWidthAt(float p_offset, int p_side) const;
         void GetDissuasionStateAt(float p_offset, int p_side, float& r_alpha, float& r_width_mult) const;

@@ -28,6 +28,8 @@ void ProceduralBifurcation::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_transition_length"), &ProceduralBifurcation::GetTransitionLength);
     ClassDB::bind_method(D_METHOD("set_solid_line_length", "len"), &ProceduralBifurcation::SetSolidLineLength);
     ClassDB::bind_method(D_METHOD("get_solid_line_length"), &ProceduralBifurcation::GetSolidLineLength);
+    ClassDB::bind_method(D_METHOD("set_taper_length", "len"), &ProceduralBifurcation::SetTaperLength);
+    ClassDB::bind_method(D_METHOD("get_taper_length"), &ProceduralBifurcation::GetTaperLength);
 
     ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "main_road_path"), "set_main_road_path", "get_main_road_path");
     ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "exit_road_path"), "set_exit_road_path", "get_exit_road_path");
@@ -44,6 +46,7 @@ void ProceduralBifurcation::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::INT, "bifurcation_type", PROPERTY_HINT_ENUM, "Exit,Entrance"), "set_bifurcation_type", "get_bifurcation_type");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "transition_length"), "set_transition_length", "get_transition_length");
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "solid_line_length"), "set_solid_line_length", "get_solid_line_length");
+    ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "taper_length"), "set_taper_length", "get_taper_length");
 }
 
 ProceduralBifurcation::ProceduralBifurcation() {}
@@ -89,6 +92,11 @@ void ProceduralBifurcation::SetTransitionLength(float p_length) { TransitionLeng
 float ProceduralBifurcation::GetTransitionLength() const { return TransitionLength; }
 void ProceduralBifurcation::SetSolidLineLength(float p_length) { SolidLineLength = p_length; RebuildBifurcation(); }
 float ProceduralBifurcation::GetSolidLineLength() const { return SolidLineLength; }
+void ProceduralBifurcation::SetTaperLength(float p_length) {
+    TaperLength = p_length;
+    RebuildBifurcation();
+}
+float ProceduralBifurcation::GetTaperLength() const { return TaperLength; }
 
 void ProceduralBifurcation::RebuildBifurcation() {
     if (!is_inside_tree() || MainRoadPath.is_empty() || ExitRoadPath.is_empty()) return;
@@ -110,13 +118,14 @@ void ProceduralBifurcation::RebuildBifurcation() {
     float start_off = (BifurcationType == 0) ? SplittingOffset - TransitionLength : SplittingOffset;
     float end_off = (BifurcationType == 0) ? SplittingOffset : SplittingOffset + TransitionLength;
     float solid_ratio = CLAMP(SolidLineLength / MAX(0.1f, TransitionLength), 0.0f, 1.0f);
-    main_road->RegisterWidthModifier(get_name(), start_off, end_off, MAX(0.0f, added_width), BifurcationSide, BifurcationType, solid_ratio);
 
-    // 2. Snapping "Line-to-Line"
+    // On passe le TaperLength en dernier paramètre
+    main_road->RegisterWidthModifier(get_name(), start_off, end_off, MAX(0.0f, added_width), BifurcationSide, BifurcationType, solid_ratio, TaperLength);
+
+    // 2. Snapping "Line-to-Line" SANS HACK
     Transform3D split_t = main_curve->sample_baked_with_rotation(SplittingOffset, true, true);
     Vector3 fwd_main_local = -split_t.basis.get_column(2).normalized();
     Vector3 right_main_local = fwd_main_local.cross(up).normalized();
-    Vector3 global_up = main_road->get_global_transform().basis.xform(split_t.basis.get_column(1)).normalized();
 
     float line_offset_main = (hw_main - main_road->GetShoulderWidth()) * side_sign;
     Vector3 line_pos_local_main = split_t.origin + (right_main_local * line_offset_main);
@@ -124,7 +133,6 @@ void ProceduralBifurcation::RebuildBifurcation() {
 
     float line_offset_exit = -(hw_exit - exit_road->GetShoulderWidth()) * side_sign;
     Vector3 split_global_center = split_global_line - main_road->get_global_transform().basis.xform(right_main_local * line_offset_exit);
-    split_global_center -= global_up * 0.015f; // Seamless offset
 
     Transform3D bif_t = get_global_transform();
     bif_t.origin = split_global_center;
