@@ -446,6 +446,45 @@ void ProceduralRoad::SnapPointsToTerrain() {
     }
 }
 
+void ProceduralRoad::RegisterWidthModifier(const String& p_id, float p_start, float p_end, float p_width, int p_side, int p_type, float p_solid_ratio) {
+    // On sauvegarde le ratio transmis par la bifurcation
+    WidthModifiers[p_id] = {p_start, p_end, p_width, p_side, p_type, p_solid_ratio};
+    RebuildRoad();
+}
+
+void ProceduralRoad::UnregisterWidthModifier(const String& p_id) {
+    if (WidthModifiers.has(p_id)) {
+        WidthModifiers.erase(p_id);
+        RebuildRoad();
+    }
+}
+
+float ProceduralRoad::GetExtraWidthAt(float p_offset, int p_side) const {
+    float total = 0.0f;
+    for (const KeyValue<String, RoadWidthModifier>& E : WidthModifiers) {
+        const RoadWidthModifier& mod = E.value;
+        if (mod.Side != p_side) continue;
+        if (p_offset < mod.StartOffset) continue;
+
+        if (mod.Type == 0) { // Sortie
+            // COUPURE NETTE : Plus aucun "taper_dist". Si on dépasse EndOffset, ça drop à 0 direct.
+            if (p_offset <= mod.EndOffset) {
+                float t = (p_offset - mod.StartOffset) / (mod.EndOffset - mod.StartOffset);
+                float smooth_t = t * t * (3.0f - 2.0f * t);
+                total += smooth_t * mod.WidthDelta;
+            }
+        } else { // Entrée
+            if (p_offset > mod.EndOffset) continue;
+            if (p_offset >= mod.StartOffset) {
+                float t = (p_offset - mod.StartOffset) / (mod.EndOffset - mod.StartOffset);
+                float smooth_t = t * t * (3.0f - 2.0f * t);
+                total += (1.0f - smooth_t) * mod.WidthDelta;
+            }
+        }
+    }
+    return total;
+}
+
 void ProceduralRoad::AutoSmoothCurve() {
     Ref<Curve3D> CurrentCurve = get_curve();
     if (CurrentCurve.is_null() || CurrentCurve->get_point_count() < 2) {
@@ -517,27 +556,22 @@ void ProceduralRoad::AutoSmoothCurve() {
 
 Vector<ProfileVertex> ProceduralRoad::BuildCrossSectionProfile() const {
     Vector<ProfileVertex> Profile;
-    const float HalfWidth = GetTotalRoadWidth() * 0.5f;
-    const float HalfThickness = RoadThickness * 0.5f;
-    const float Radius = HalfThickness;
-    const float StraightWidth = Math::max(0.0f, HalfWidth - Radius);
+    const float Radius = RoadThickness * 0.5f;
 
     for (int i = 0; i <= ProfileResolution; ++i) {
         float Angle = Math_PI * 0.5f - (Math_PI * float(i) / float(ProfileResolution));
         ProfileVertex Vertex;
         Vertex.Normal = Vector2(Math::cos(Angle), Math::sin(Angle));
-        Vertex.Position = Vector2(StraightWidth, 0.0f) + (Vertex.Normal * Radius);
+        Vertex.Position = Vertex.Normal * Radius; // Uniquement le rayon
         Profile.push_back(Vertex);
     }
-
     for (int i = 0; i <= ProfileResolution; ++i) {
         float Angle = -Math_PI * 0.5f - (Math_PI * float(i) / float(ProfileResolution));
         ProfileVertex Vertex;
         Vertex.Normal = Vector2(Math::cos(Angle), Math::sin(Angle));
-        Vertex.Position = Vector2(-StraightWidth, 0.0f) + (Vertex.Normal * Radius);
+        Vertex.Position = Vertex.Normal * Radius;
         Profile.push_back(Vertex);
     }
-
     return Profile;
 }
 
@@ -611,40 +645,75 @@ void ProceduralRoad::RebuildRoad() {
     const float StartX = -TotalWidth * 0.5f + ShoulderWidth;
     Vector<RibbonDef> Ribbons;
 
-    auto add_ribbons = [&](float base_offset, Color base_color, int line_type) {
-        float alpha = (line_type == 1) ? 0.0f : 1.0f;
+    auto add_ribbons = [&](int anchor_type, float relative_offset, Color base_color, int line_type) {
+        float alpha = (line_type == 1) ? 0.0f : 1.0f; // 1 = Pointillé
         Color final_color = Color(base_color.r, base_color.g, base_color.b, alpha);
-        if (line_type == 2) {
-            Ribbons.push_back({base_offset - (DoubleLineSpacing * 0.5f), final_color});
-            Ribbons.push_back({base_offset + (DoubleLineSpacing * 0.5f), final_color});
+        if (line_type == 2) { // Double Continue
+            Ribbons.push_back({anchor_type, relative_offset - (DoubleLineSpacing * 0.5f), final_color});
+            Ribbons.push_back({anchor_type, relative_offset + (DoubleLineSpacing * 0.5f), final_color});
         } else {
-            Ribbons.push_back({base_offset, final_color});
+            Ribbons.push_back({anchor_type, relative_offset, final_color});
         }
     };
 
-    add_ribbons(StartX, EdgeLineColor, EdgeLineType);
-    add_ribbons(TotalWidth * 0.5f - ShoulderWidth, EdgeLineColor, EdgeLineType);
+    add_ribbons(0, 0.0f, EdgeLineColor, EdgeLineType); // Bord Gauche
+    add_ribbons(1, 0.0f, EdgeLineColor, EdgeLineType); // Bord Droit
+
     for (int Lane = 1; Lane < LaneCount; ++Lane) {
-        const float Offset = StartX + (Lane * LaneWidth);
-        const bool IsCenter = (!IsOneWay && Lane == CenterLineIndex);
-        add_ribbons(Offset, IsCenter ? CenterLineColor : LaneLineColor, IsCenter ? CenterLineType : LaneLineType);
+        float Offset = StartX + (Lane * LaneWidth);
+        bool IsCenter = (!IsOneWay && Lane == CenterLineIndex);
+        add_ribbons(2, Offset, IsCenter ? CenterLineColor : LaneLineColor, IsCenter ? CenterLineType : LaneLineType);
     }
 
+    add_ribbons(3, 0.0f, EdgeLineColor, 1); // Ligne de dissuasion (Sortie Gauche)
+    add_ribbons(4, 0.0f, EdgeLineColor, 1); // Ligne de dissuasion (Sortie Droite)
+
     // ====================================================================
-    // --- 1. ÉCHANTILLONNAGE HAUTE PRÉCISION (AVEC TILT INTÉGRÉ !) ---
+    // --- 1. ÉCHANTILLONNAGE HAUTE PRÉCISION (AVEC CASSURES) ---
     // ====================================================================
     float TotalLength = CurrentCurve->get_baked_length();
     float SamplingStep = 1.0f;
-    int PointCount = MAX(2, Math::ceil(TotalLength / SamplingStep) + 1);
 
+    Vector<float> Offsets;
+    for (float d = 0.0f; d < TotalLength; d += SamplingStep) {
+        Offsets.push_back(d);
+    }
+    Offsets.push_back(TotalLength);
+
+    // INJECTION : On force le générateur à créer des vertices pile sur les limites
+    for (const KeyValue<String, RoadWidthModifier>& E : WidthModifiers) {
+        if (E.value.Type == 0) { // Sortie
+            float split = E.value.EndOffset;
+            if (split > 0.0f && split < TotalLength) {
+                Offsets.push_back(split);
+                Offsets.push_back(split + 0.001f); // La brisure parfaite : +1 millimètre
+            }
+        } else { // Entrée
+            float split = E.value.StartOffset;
+            if (split > 0.0f && split < TotalLength) {
+                Offsets.push_back(split - 0.001f); // La brisure
+                Offsets.push_back(split);
+            }
+        }
+    }
+
+    Offsets.sort();
+
+    // On retire les doublons liés au SamplingStep, tout en gardant nos brisures
+    Vector<float> FinalOffsets;
+    for (int i = 0; i < Offsets.size(); ++i) {
+        if (i == 0 || (Offsets[i] - FinalOffsets[FinalOffsets.size() - 1]) >= 0.0005f) {
+            FinalOffsets.push_back(Offsets[i]);
+        }
+    }
+
+    int PointCount = FinalOffsets.size();
     PackedVector3Array Points; Points.resize(PointCount);
     PackedVector3Array UpVectors; UpVectors.resize(PointCount);
 
     for (int i = 0; i < PointCount; ++i) {
-        float offset = MIN(i * SamplingStep, TotalLength);
-        // LE FIX : true (cubic) et true (apply_tilt). Godot gère le roulis pour nous !
+        float offset = MIN(FinalOffsets[i], TotalLength);
         Transform3D t = CurrentCurve->sample_baked_with_rotation(offset, true, true);
-
         Points.set(i, t.origin);
         UpVectors.set(i, t.basis.get_column(1).normalized());
     }
@@ -785,9 +854,20 @@ void ProceduralRoad::GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p
     LineSurface.instantiate();
     LineSurface->begin(Mesh::PRIMITIVE_TRIANGLES);
 
-    // ====================================================================
-    // --- 1. VERTICES & UVS ---
-    // ====================================================================
+    auto get_ribbon_offset = [&](const RibbonDef& ribbon, float hw_l, float hw_r) -> float {
+        float AnchorPos = 0.0f;
+        switch(ribbon.AnchorType) {
+            case 0: AnchorPos = -hw_l + ShoulderWidth; break;
+            case 1: AnchorPos = hw_r - ShoulderWidth; break;
+            case 2: AnchorPos = ribbon.RelativeOffset; break;
+            case 3: AnchorPos = -(GetTotalRoadWidth() * 0.5f) + ShoulderWidth; break;
+            case 4: AnchorPos = (GetTotalRoadWidth() * 0.5f) - ShoulderWidth; break;
+        }
+        float FinalOffset = AnchorPos;
+        if (ribbon.AnchorType != 2) FinalOffset += ribbon.RelativeOffset;
+        return FinalOffset;
+    };
+
     float CenterDistance = 0.0f;
     Vector<float> RibbonDistances;
     RibbonDistances.resize(RibbonCountTotal);
@@ -802,25 +882,40 @@ void ProceduralRoad::GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p
     const Vector3 InitRight = InitForward.cross(InitUp).normalized();
     const Vector3 InitOrthogonalUp = InitRight.cross(InitForward).normalized();
 
+    float init_offset = 0.0f;
+    float init_hw_l = (GetTotalRoadWidth() * 0.5f) + GetExtraWidthAt(init_offset, -1);
+    float init_hw_r = (GetTotalRoadWidth() * 0.5f) + GetExtraWidthAt(init_offset, 1);
+
     for (int k = 0; k < RibbonCountTotal; ++k) {
-        PrevRibbonCenters.write[k] = p_points[0] + (InitRight * p_ribbons[k].OffsetX) + (InitOrthogonalUp * (RoadThickness * 0.5f + LineOffset));
+        float r_offset = get_ribbon_offset(p_ribbons[k], init_hw_l, init_hw_r);
+        PrevRibbonCenters.write[k] = p_points[0] + (InitRight * r_offset) + (InitOrthogonalUp * (RoadThickness * 0.5f + LineOffset));
     }
 
     for (int i = 0; i <= p_end_idx; ++i) {
         const Vector3 CurrentPoint = p_points[i];
         const Vector3 Forward = p_forwards[i];
-
-        // Le vecteur Up est DÉJÀ incliné correctement par Godot !
         const Vector3 Up = p_up_vectors[i].normalized();
-
         const Vector3 Right = Forward.cross(Up).normalized();
         const Vector3 OrthogonalUp = Right.cross(Forward).normalized();
 
         if (i > 0) CenterDistance += PrevCenter.distance_to(CurrentPoint);
         PrevCenter = CurrentPoint;
 
+        float CurrentOffset = CenterDistance;
+        float extra_l = GetExtraWidthAt(CurrentOffset, -1);
+        float extra_r = GetExtraWidthAt(CurrentOffset, 1);
+
+        float hw_l = (GetTotalRoadWidth() * 0.5f) + extra_l;
+        float hw_r = (GetTotalRoadWidth() * 0.5f) + extra_r;
+        float sw_l = Math::max(0.0f, hw_l - (RoadThickness * 0.5f));
+        float sw_r = Math::max(0.0f, hw_r - (RoadThickness * 0.5f));
+
+        Vector<float> CurrentRibbonOffsets;
+        CurrentRibbonOffsets.resize(RibbonCountTotal);
+
         for (int k = 0; k < RibbonCountTotal; ++k) {
-            Vector3 RibbonCenter = CurrentPoint + (Right * p_ribbons[k].OffsetX) + (OrthogonalUp * (RoadThickness * 0.5f + LineOffset));
+            CurrentRibbonOffsets.write[k] = get_ribbon_offset(p_ribbons[k], hw_l, hw_r);
+            Vector3 RibbonCenter = CurrentPoint + (Right * CurrentRibbonOffsets[k]) + (OrthogonalUp * (RoadThickness * 0.5f + LineOffset));
             if (i > 0) RibbonDistances.write[k] += PrevRibbonCenters[k].distance_to(RibbonCenter);
             PrevRibbonCenters.write[k] = RibbonCenter;
         }
@@ -828,10 +923,13 @@ void ProceduralRoad::GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p
         if (i >= p_start_idx) {
             float CurrentPerimeter = 0.0f;
             for (int j = 0; j < ProfileCount; ++j) {
-                const Vector2 ProfilePos = p_profile[j].Position;
                 const Vector2 ProfileNormal = p_profile[j].Normal;
 
-                Vector3 Vertex3D = (CurrentPoint + (Right * ProfilePos.x) + (OrthogonalUp * ProfilePos.y)) - ChunkOrigin;
+                float side_sign = (j < (ProfileCount / 2)) ? 1.0f : -1.0f;
+                float sw = (side_sign > 0.0f) ? sw_r : sw_l;
+
+                Vector2 FinalProfilePos = Vector2(sw * side_sign, 0.0f) + p_profile[j].Position;
+                Vector3 Vertex3D = (CurrentPoint + (Right * FinalProfilePos.x) + (OrthogonalUp * FinalProfilePos.y)) - ChunkOrigin;
                 const Vector3 Normal3D = ((Right * ProfileNormal.x) + (OrthogonalUp * ProfileNormal.y)).normalized();
 
                 RoadSurface->set_normal(Normal3D);
@@ -839,20 +937,41 @@ void ProceduralRoad::GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p
                 RoadSurface->add_vertex(Vertex3D);
 
                 const int NextJ = (j + 1) % ProfileCount;
-                CurrentPerimeter += p_profile[j].Position.distance_to(p_profile[NextJ].Position);
+                float next_side_sign = (NextJ < (ProfileCount / 2)) ? 1.0f : -1.0f;
+                float next_sw = (next_side_sign > 0.0f) ? sw_r : sw_l;
+
+                Vector2 NextProfilePos = Vector2(next_sw * next_side_sign, 0.0f) + p_profile[NextJ].Position;
+                CurrentPerimeter += FinalProfilePos.distance_to(NextProfilePos);
             }
 
             for (int k = 0; k < RibbonCountTotal; ++k) {
-                Vector3 Center = PrevRibbonCenters[k];
-                Vector3 LeftVertex = (Center - (Right * (LineWidth * 0.5f))) - ChunkOrigin;
-                Vector3 RightVertex = (Center + (Right * (LineWidth * 0.5f))) - ChunkOrigin;
+                Color R_Color = p_ribbons[k].ColorValue;
+                float current_line_width = LineWidth;
 
-                LineSurface->set_color(p_ribbons[k].ColorValue);
+                // Application du contrôleur d'état sur les lignes de dissuasion
+                if (p_ribbons[k].AnchorType == 3 || p_ribbons[k].AnchorType == 4) {
+                    int side = (p_ribbons[k].AnchorType == 3) ? -1 : 1;
+                    float d_alpha, d_width_mult;
+                    GetDissuasionStateAt(CurrentOffset, side, d_alpha, d_width_mult);
+
+                    R_Color.a = d_alpha;
+                    current_line_width *= d_width_mult;
+                }
+
+                float FinalOffset = CurrentRibbonOffsets[k];
+
+                Vector3 Center = CurrentPoint + (Right * FinalOffset) + (OrthogonalUp * (RoadThickness * 0.5f + LineOffset));
+
+                // Si la largeur est à 0, les vertices se superposent : la ligne disparait sans trouer l'index buffer
+                Vector3 LeftVertex = (Center - (Right * (current_line_width * 0.5f))) - ChunkOrigin;
+                Vector3 RightVertex = (Center + (Right * (current_line_width * 0.5f))) - ChunkOrigin;
+
+                LineSurface->set_color(R_Color);
                 LineSurface->set_normal(OrthogonalUp);
                 LineSurface->set_uv(Vector2(0.0f, RibbonDistances[k] * UvScale.y));
                 LineSurface->add_vertex(LeftVertex);
 
-                LineSurface->set_color(p_ribbons[k].ColorValue);
+                LineSurface->set_color(R_Color);
                 LineSurface->set_normal(OrthogonalUp);
                 LineSurface->set_uv(Vector2(1.0f, RibbonDistances[k] * UvScale.y));
                 LineSurface->add_vertex(RightVertex);
@@ -860,10 +979,14 @@ void ProceduralRoad::GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p
         }
     }
 
-    // ====================================================================
-    // --- 2. INDEXATION (LE BLOC QUI TE MANQUAIT) ---
-    // ====================================================================
     for (int local_i = 0; local_i < LocalPointCount - 1; ++local_i) {
+        int global_i = p_start_idx + local_i;
+
+        // LA CASSURE 0mm : On saute la génération de triangles si on est sur la brisure
+        if (p_points[global_i].distance_to(p_points[global_i + 1]) < 0.005f) {
+            continue;
+        }
+
         const int CurrentRing = local_i * ProfileCount;
         const int NextRing = (local_i + 1) * ProfileCount;
 
@@ -894,9 +1017,6 @@ void ProceduralRoad::GenerateChunkMesh(int p_chunk_index, int p_start_idx, int p
         }
     }
 
-    // ====================================================================
-    // --- 3. COMMIT DES MESHES ---
-    // ====================================================================
     RoadSurface->generate_tangents();
     LineSurface->generate_tangents();
 
@@ -1056,6 +1176,32 @@ void ProceduralRoad::BakeTerrain() {
             storage->call("update_maps", 0);
         } else if (storage->has_method("force_update_maps")) {
             storage->call("force_update_maps", 0);
+        }
+    }
+}
+
+void ProceduralRoad::GetDissuasionStateAt(float p_offset, int p_side, float& r_alpha, float& r_width_mult) const {
+    r_alpha = 0.0f;
+    r_width_mult = 0.0f;
+
+    for (const KeyValue<String, RoadWidthModifier>& E : WidthModifiers) {
+        const RoadWidthModifier& mod = E.value;
+        if (mod.Side != p_side) continue;
+
+        if (p_offset >= mod.StartOffset && p_offset <= mod.EndOffset) {
+            float t = (p_offset - mod.StartOffset) / (mod.EndOffset - mod.StartOffset);
+            r_width_mult = 1.0f;
+
+            if (mod.Type == 0) { // Sortie
+                if (t < 0.05f) r_width_mult = 0.0f;
+                else if (t < 1.0f - mod.SolidLineRatio) r_alpha = 0.0f; // Pointillés au début
+                else r_alpha = 1.0f;                                    // Continue à la fin
+            } else { // Entrée
+                if (t < mod.SolidLineRatio) r_alpha = 1.0f;             // Continue au début
+                else if (t < 0.95f) r_alpha = 0.0f;                     // Pointillés à la fin
+                else r_width_mult = 0.0f;
+            }
+            return;
         }
     }
 }

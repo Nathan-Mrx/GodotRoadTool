@@ -3,6 +3,7 @@
 #include "ProceduralRoad.h"
 #include "ProceduralIntersection.h"
 #include "ProceduralRoadGizmos.h"
+#include "ProceduralBifurcation.h"
 
 #include <gdextension_interface.h>
 #include <godot_cpp/core/defs.hpp>
@@ -14,6 +15,7 @@ void initialize_roadtool_module(ModuleInitializationLevel p_level) {
     if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
         ClassDB::register_class<ProceduralRoad>();
         ClassDB::register_class<ProceduralIntersection>();
+        ClassDB::register_class<ProceduralBifurcation>();
     }
 
     // Le Gizmo est un outil d'éditeur, il reste dans ce niveau !

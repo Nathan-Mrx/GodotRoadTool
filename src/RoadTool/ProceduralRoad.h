@@ -9,6 +9,7 @@
 #include <godot_cpp/classes/shape3d.hpp>
 #include <godot_cpp/classes/material.hpp>
 #include <godot_cpp/classes/curve3d.hpp>
+#include <godot_cpp/templates/hash_map.hpp>
 
 namespace godot {
 
@@ -17,9 +18,19 @@ namespace godot {
         Vector2 Normal;
     };
 
+    struct RoadWidthModifier {
+        float StartOffset = 0.0f;
+        float EndOffset = 0.0f;
+        float WidthDelta = 0.0f;
+        int Side = 1; // 1 = Droit, -1 = Gauche
+        int Type = 0; // 0 = Sortie (0 -> Width), 1 = Entrée (Width -> 0)
+        float SolidLineRatio = 0.4f;
+    };
+
     struct RibbonDef {
-        float OffsetX;
-        Color ColorValue; // Alpha 1.0 = Continue, Alpha 0.0 = Pointillée
+        int AnchorType; // 0=BordGauche, 1=BordDroit, 2=Centre, 3=DissuasionGauche, 4=DissuasionDroite
+        float RelativeOffset;
+        Color ColorValue;
     };
 
     // Nouveau conteneur pour regrouper les nœuds d'un segment
@@ -81,6 +92,8 @@ namespace godot {
         NodePath ConnectedEnd;
 
         bool TriggerSnapToTerrain = false;
+
+        HashMap<String, RoadWidthModifier> WidthModifiers;
 
     protected:
         static void _bind_methods();
@@ -152,7 +165,10 @@ namespace godot {
         void SetTriggerSnapToTerrain(bool p_trigger);
         bool GetTriggerSnapToTerrain() const;
         void SnapPointsToTerrain();
-
+        void RegisterWidthModifier(const String& p_id, float p_start, float p_end, float p_width, int p_side, int p_type, float p_solid_ratio = 0.4f);
+        void UnregisterWidthModifier(const String& p_id);
+        float GetExtraWidthAt(float p_offset, int p_side) const;
+        void GetDissuasionStateAt(float p_offset, int p_side, float& r_alpha, float& r_width_mult) const;
 
 
         void RebuildRoad();
